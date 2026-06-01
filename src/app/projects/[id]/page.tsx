@@ -4,56 +4,133 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import { createClient } from "@/lib/supabase/client";
 import {
   Play,
   Pause,
   Square,
   Minus,
-  Plus,
   ChevronLeft,
   Edit3,
   Clock,
-  Hash,
 } from "lucide-react";
 
-// Mock data — same as dashboard, will come from Supabase
-const MOCK_PROJECT = {
-  id: "1",
-  name: "Forest Green Scarf",
-  type: "knit" as const,
-  status: "wip" as const,
-  currentRow: 42,
-  totalRows: 84,
-  stitchName: "Seed stitch",
-  yarnWeight: "Worsted",
-  needleSize: "US 7 / 4.5mm",
-  yarnColor: "#4A7C59",
-  yarnName: "Malabrigo Rios — Lettuce",
-  notes:
-    "Using seed stitch. Cast on 24 stitches. Looks great in the merino — very bumpy and tactile.\n\nTip: Count carefully at the edges. Easy to lose track and do K1, K1 instead of K1, P1.",
-  createdAt: "May 15, 2026",
-};
+interface ProjectData {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  current_row: number;
+  total_rows: number | null;
+  stitch_name: string | null;
+  yarn_weight: string | null;
+  needle_size: string | null;
+  yarn_color: string | null;
+  yarn_name: string | null;
+  notes: string | null;
+  photo_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
-const MOCK_SESSIONS = [
-  { id: "s1", date: "Today", rows: 12, duration: "1h 23m", note: "Halfway there!" },
-  { id: "s2", date: "Yesterday", rows: 8, duration: "45m", note: "" },
-  { id: "s3", date: "May 30", rows: 14, duration: "1h 50m", note: "Really good session" },
-  { id: "s4", date: "May 28", rows: 8, duration: "55m", note: "" },
-];
+interface SessionData {
+  id: string;
+  date: string;
+  rows_added: number;
+  duration_seconds: number;
+  notes: string | null;
+}
 
 const QUICK_ADDS = [5, 10, 20];
 
 export default function ProjectDetail() {
   const params = useParams();
   const router = useRouter();
-  const project = MOCK_PROJECT; // Will fetch by params.id
+  const supabase = createClient();
 
-  const [row, setRow] = useState(project.currentRow);
+  const [project, setProject] = useState<ProjectData | null>(null);
+  const [sessions, setSessions] = useState<SessionData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  const [row, setRow] = useState(0);
   const [bumping, setBumping] = useState(false);
-  const [notes, setNotes] = useState(project.notes);
+  const [notes, setNotes] = useState("");
+  const [notesSaved, setNotesSaved] = useState(false);
   const [timerRunning, setTimerRunning] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerStart, setTimerStart] = useState<number | null>(null);
+
+  const formatSessionDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  const formatDuration = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  };
+
+  // Load project data
+  useEffect(() => {
+    async function load() {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+      if (authError || !user) {
+        router.push("/login");
+        return;
+      }
+      setUserId(user.id);
+
+      const projectId = params.id as string;
+
+      const { data: proj } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("id", projectId)
+        .eq("user_id", user.id)
+        .single();
+
+      if (!proj) {
+        router.push("/");
+        return;
+      }
+
+      setProject(proj);
+      setRow(proj.current_row);
+      setNotes(proj.notes || "");
+
+      // Fetch sessions
+      const { data: sess } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("started_at", { ascending: false })
+        .limit(10);
+
+      setSessions(
+        (sess || []).map((s) => ({
+          id: s.id,
+          date: formatSessionDate(s.started_at),
+          rows_added: s.rows_added || 0,
+          duration_seconds: s.duration_seconds || 0,
+          notes: s.notes,
+        }))
+      );
+
+      setLoading(false);
+    }
+    load();
+  }, []);
 
   // Timer tick
   useEffect(() => {
@@ -71,9 +148,18 @@ export default function ProjectDetail() {
     setTimeout(() => setBumping(false), 150);
   }, []);
 
-  const addRow = (n: number) => {
-    setRow((prev) => Math.max(0, prev + n));
+  const addRow = async (n: number) => {
+    const newRow = Math.max(0, row + n);
+    setRow(newRow);
     bump();
+
+    // Optimistically update the DB
+    if (project) {
+      await supabase
+        .from("projects")
+        .update({ current_row: newRow, updated_at: new Date().toISOString() })
+        .eq("id", project.id);
+    }
   };
 
   const startTimer = () => {
@@ -86,11 +172,51 @@ export default function ProjectDetail() {
     setTimerStart(null);
   };
 
-  const stopTimer = () => {
+  const stopTimer = async () => {
     setTimerRunning(false);
     setTimerStart(null);
-    // TODO: save session to Supabase
+
+    if (project && userId && timerSeconds > 0) {
+      await supabase.from("sessions").insert({
+        project_id: project.id,
+        user_id: userId,
+        started_at: new Date(Date.now() - timerSeconds * 1000).toISOString(),
+        ended_at: new Date().toISOString(),
+        duration_seconds: timerSeconds,
+        rows_added: 0,
+      });
+
+      // Reload sessions
+      const { data: sess } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("project_id", project.id)
+        .order("started_at", { ascending: false })
+        .limit(10);
+
+      setSessions(
+        (sess || []).map((s) => ({
+          id: s.id,
+          date: formatSessionDate(s.started_at),
+          rows_added: s.rows_added || 0,
+          duration_seconds: s.duration_seconds || 0,
+          notes: s.notes,
+        }))
+      );
+    }
+
     setTimerSeconds(0);
+  };
+
+  const saveNotes = async () => {
+    if (project) {
+      await supabase
+        .from("projects")
+        .update({ notes, updated_at: new Date().toISOString() })
+        .eq("id", project.id);
+      setNotesSaved(true);
+      setTimeout(() => setNotesSaved(false), 2000);
+    }
   };
 
   const formatTime = (s: number) => {
@@ -102,7 +228,22 @@ export default function ProjectDetail() {
       : `${m}:${String(sec).padStart(2, "0")}`;
   };
 
-  const progress = Math.round((row / (project.totalRows || 1)) * 100);
+  if (loading) {
+    return (
+      <>
+        <Nav />
+        <main className="relative z-10 mx-auto max-w-6xl px-6 py-8">
+          <p className="text-sm font-bold text-warm-gray">Loading project...</p>
+        </main>
+      </>
+    );
+  }
+
+  if (!project) return null;
+
+  const progress = Math.round((row / (project.total_rows || 1)) * 100);
+  const yarnColor = project.yarn_color || "#6B9E7A";
+  const yarnName = project.yarn_name || "";
 
   return (
     <>
@@ -128,8 +269,9 @@ export default function ProjectDetail() {
                     {project.name}
                   </h1>
                   <p className="text-sm text-warm-gray">
-                    {project.stitchName} · {project.type} · {project.yarnWeight}{" "}
-                    · {project.needleSize}
+                    {[project.stitch_name, project.type, project.yarn_weight, project.needle_size]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 </div>
                 <span className="rounded-lg bg-sage-light px-3 py-1 text-[12px] font-bold text-sage-deep uppercase">
@@ -159,7 +301,7 @@ export default function ProjectDetail() {
                   className="h-full rounded-full transition-all duration-300"
                   style={{
                     width: `${progress}%`,
-                    background: `linear-gradient(90deg, ${project.yarnColor}, ${project.yarnColor}cc)`,
+                    background: `linear-gradient(90deg, ${yarnColor}, ${yarnColor}cc)`,
                   }}
                 />
               </div>
@@ -170,12 +312,12 @@ export default function ProjectDetail() {
                   className={`font-serif text-[96px] font-semibold leading-none transition-transform ${
                     bumping ? "counter-bump" : ""
                   }`}
-                  style={{ color: project.yarnColor }}
+                  style={{ color: yarnColor }}
                 >
                   {row}
                 </div>
                 <span className="text-sm font-semibold text-warm-gray">
-                  of {project.totalRows || "∞"} rows
+                  of {project.total_rows || "∞"} rows
                 </span>
               </div>
 
@@ -267,11 +409,19 @@ export default function ProjectDetail() {
 
             {/* NOTES */}
             <div className="rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
-              <div className="mb-3 flex items-center gap-2">
-                <Edit3 size={16} className="text-warm-gray" />
-                <span className="text-xs font-extrabold uppercase tracking-wider text-warm-gray">
-                  Notes
-                </span>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Edit3 size={16} className="text-warm-gray" />
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-warm-gray">
+                    Notes
+                  </span>
+                </div>
+                <button
+                  onClick={saveNotes}
+                  className="rounded-lg bg-sage px-3 py-1 text-[12px] font-bold text-white transition-all hover:bg-sage-deep"
+                >
+                  {notesSaved ? "✓ Saved" : "Save"}
+                </button>
               </div>
               <textarea
                 value={notes}
@@ -292,13 +442,15 @@ export default function ProjectDetail() {
               <div className="flex items-center gap-3">
                 <div
                   className="h-10 w-10 rounded-lg"
-                  style={{ background: project.yarnColor }}
+                  style={{ background: yarnColor }}
                 />
                 <div>
-                  <div className="text-sm font-bold">{project.yarnName}</div>
-                  <div className="text-xs text-warm-gray">
-                    {project.yarnWeight} · 2 skeins allocated
-                  </div>
+                  <div className="text-sm font-bold">{yarnName}</div>
+                  {project.yarn_weight && (
+                    <div className="text-xs text-warm-gray">
+                      {project.yarn_weight}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -308,31 +460,37 @@ export default function ProjectDetail() {
               <h3 className="mb-3 text-xs font-extrabold uppercase tracking-wider text-warm-gray">
                 Recent Sessions
               </h3>
-              <div className="space-y-3">
-                {MOCK_SESSIONS.map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex items-center justify-between border-b border-warm-bg pb-2 last:border-0 last:pb-0"
-                  >
-                    <div>
-                      <div className="text-[13px] font-bold">{s.date}</div>
-                      {s.note && (
+              {sessions.length === 0 ? (
+                <p className="text-[13px] text-warm-gray">No sessions yet</p>
+              ) : (
+                <div className="space-y-3">
+                  {sessions.map((s) => (
+                    <div
+                      key={s.id}
+                      className="flex items-center justify-between border-b border-warm-bg pb-2 last:border-0 last:pb-0"
+                    >
+                      <div>
+                        <div className="text-[13px] font-bold">{s.date}</div>
+                        {s.notes && (
+                          <div className="text-[11px] text-warm-gray">
+                            {s.notes}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        {s.rows_added > 0 && (
+                          <div className="text-[13px] font-bold text-sage-deep">
+                            +{s.rows_added} rows
+                          </div>
+                        )}
                         <div className="text-[11px] text-warm-gray">
-                          {s.note}
+                          {formatDuration(s.duration_seconds)}
                         </div>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[13px] font-bold text-sage-deep">
-                        +{s.rows} rows
-                      </div>
-                      <div className="text-[11px] text-warm-gray">
-                        {s.duration}
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Progress Photos */}
@@ -368,7 +526,7 @@ export default function ProjectDetail() {
                       style={{
                         height: `${Math.max(4, (v / 14) * 100)}%`,
                         background:
-                          v > 0 ? project.yarnColor : "var(--wood-pale)",
+                          v > 0 ? yarnColor : "var(--wood-pale)",
                         opacity: i === 6 ? 1 : 0.7,
                       }}
                     />
