@@ -36,7 +36,8 @@ export async function updateSession(request: NextRequest) {
   // If user is not authenticated and not on login page, redirect
   if (
     !user &&
-    !request.nextUrl.pathname.startsWith("/login")
+    !request.nextUrl.pathname.startsWith("/login") &&
+    !request.nextUrl.pathname.startsWith("/signup")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

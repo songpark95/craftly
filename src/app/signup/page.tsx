@@ -5,20 +5,33 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-export default function LoginPage() {
+export default function SignUpPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const supabase = createClient();
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (password !== confirmPassword) {
+      setError("Passwords don't match");
+      return;
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
     });
@@ -29,8 +42,16 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/");
-    router.refresh();
+    // If email confirmation is disabled, user is signed in immediately
+    // If enabled, they'll need to confirm via email
+    setSuccess(true);
+    setLoading(false);
+
+    // Try to redirect immediately (works if email confirm is off)
+    setTimeout(() => {
+      router.push("/");
+      router.refresh();
+    }, 1000);
   };
 
   return (
@@ -41,17 +62,23 @@ export default function LoginPage() {
             craft<span className="text-sage italic">ly</span>
           </h1>
           <p className="mt-2 text-sm font-semibold text-warm-gray">
-            Sign in to your crafting companion
+            Create your crafting account
           </p>
         </div>
 
         <form
-          onSubmit={handleLogin}
+          onSubmit={handleSignUp}
           className="rounded-2xl bg-white p-8 shadow-soft border border-warm-wood-pale"
         >
           {error && (
             <div className="mb-4 rounded-xl bg-craft-rose-light px-4 py-3 text-[13px] font-bold text-craft-rose">
               {error}
+            </div>
+          )}
+
+          {success && (
+            <div className="mb-4 rounded-xl bg-sage/10 px-4 py-3 text-[13px] font-bold text-sage">
+              Account created! Redirecting...
             </div>
           )}
 
@@ -73,7 +100,7 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="mb-6">
+          <div className="mb-4">
             <label
               htmlFor="password"
               className="mb-1.5 block text-[13px] font-extrabold text-warm-gray"
@@ -87,23 +114,43 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
+              minLength={6}
+              className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage"
+            />
+          </div>
+
+          <div className="mb-6">
+            <label
+              htmlFor="confirmPassword"
+              className="mb-1.5 block text-[13px] font-extrabold text-warm-gray"
+            >
+              Confirm Password
+            </label>
+            <input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              minLength={6}
               className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage"
             />
           </div>
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || success}
             className="w-full rounded-xl bg-sage py-3 text-sm font-extrabold text-white transition-all hover:bg-sage-deep disabled:opacity-50"
           >
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? "Creating account..." : "Create Account"}
           </button>
         </form>
 
         <p className="mt-6 text-center text-[12px] text-warm-gray">
-          Don&apos;t have an account?{" "}
-          <Link href="/signup" className="font-bold text-sage hover:text-sage-deep">
-            Create one
+          Already have an account?{" "}
+          <Link href="/login" className="font-bold text-sage hover:text-sage-deep">
+            Sign in
           </Link>
         </p>
       </div>
