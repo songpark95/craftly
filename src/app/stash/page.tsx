@@ -1,12 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { YarnCardSkeleton } from "@/components/Skeleton";
 import { createClient } from "@/lib/supabase/client";
-import { Search as SearchIcon, Plus, Link as LinkIcon, X } from "lucide-react";
+import { Search as SearchIcon, Plus, Link as LinkIcon, X, Camera } from "lucide-react";
 import { searchYarnTemplates, YarnTemplate } from "@/lib/yarn-templates";
+
+interface ScannedYarn {
+  name: string;
+  brand: string;
+  weight: string;
+  fiber: string;
+  color_hex: string;
+  color_name: string;
+  yardage_per_skein: number | null;
+  quantity_estimate: number;
+  confidence: "high" | "medium" | "low";
+  notes: string;
+}
 
 const PRESET_COLORS = [
   "#4A7C59", "#D4A843", "#7B5EA7", "#C9707D",
@@ -63,6 +76,16 @@ export default function StashPage() {
   const [editYarnSaving, setEditYarnSaving] = useState(false);
   const [yarnToDelete, setYarnToDelete] = useState<string | null>(null);
 
+  // Photo scan state
+  const [showScan, setShowScan] = useState(false);
+  const [scanImage, setScanImage] = useState<string | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanResults, setScanResults] = useState<ScannedYarn[]>([]);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSavingId, setScanSavingId] = useState<number | null>(null);
+  const [savedScans, setSavedScans] = useState<Set<number>>(new Set());
+  const scanInputRef = useRef<HTMLInputElement>(null);
+
   const refreshYarnList = async () => {
     const {
       data: { user },
@@ -109,6 +132,78 @@ export default function StashPage() {
   const handleYarnNameChange = (val: string) => {
     setYarnName(val);
     setYarnSuggestions(searchYarnTemplates(val));
+  };
+
+  // Photo scan functions
+  const handleScanFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Convert to base64 data URL
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      setScanImage(dataUrl);
+      setShowScan(true);
+      setScanLoading(true);
+      setScanError(null);
+      setScanResults([]);
+      setSavedScans(new Set());
+
+      try {
+        const res = await fetch("/api/recognize-yarn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: dataUrl }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          setScanError(data.error);
+        } else {
+          setScanResults(data.yarns || []);
+        }
+      } catch {
+        setScanError("Failed to analyze photo. Try again.");
+      } finally {
+        setScanLoading(false);
+      }
+    };
+    reader.readAsDataURL(file);
+    // Reset input so same file can be re-selected
+    e.target.value = "";
+  };
+
+  const saveScanYarn = async (yarn: ScannedYarn, index: number) => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    setScanSavingId(index);
+    const { error } = await supabase.from("yarn").insert({
+      user_id: user.id,
+      name: yarn.name !== "Unknown" ? yarn.name : yarn.color_name || "Unknown Yarn",
+      brand: yarn.brand !== "Unknown" ? yarn.brand : null,
+      color_hex: yarn.color_hex || PRESET_COLORS[0],
+      weight: yarn.weight !== "Unknown" ? yarn.weight.toLowerCase() : null,
+      fiber: yarn.fiber !== "Unknown" ? yarn.fiber : null,
+      yardage: yarn.yardage_per_skein || null,
+      quantity: yarn.quantity_estimate || 1,
+    });
+
+    if (!error) {
+      setSavedScans((prev) => new Set([...prev, index]));
+      await refreshYarnList();
+    }
+    setScanSavingId(null);
+  };
+
+  const resetScan = () => {
+    setShowScan(false);
+    setScanImage(null);
+    setScanResults([]);
+    setScanError(null);
+    setSavedScans(new Set());
   };
 
   const handleAddYarn = async (e: React.FormEvent) => {
@@ -298,6 +393,21 @@ export default function StashPage() {
             <Plus size={20} />
             Add Yarn to Stash
           </button>
+          <button
+            onClick={() => scanInputRef.current?.click()}
+            className="w-full flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-sage bg-sage-light px-6 py-3 text-sm font-extrabold text-sage transition-all hover:bg-sage/10 active:scale-[0.98]"
+          >
+            <Camera size={18} />
+            Scan Photo to Add Yarn
+          </button>
+          <input
+            ref={scanInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleScanFile}
+            className="hidden"
+          />
         </div>
 
         {/* Filter Bar */}
@@ -699,6 +809,135 @@ export default function StashPage() {
             <div className="flex gap-3">
               <button onClick={() => setYarnToDelete(null)} className="flex-1 rounded-xl border-2 border-warm-wood-pale bg-white py-2.5 text-sm font-bold text-warm-gray hover:bg-warm-bg transition-colors">Cancel</button>
               <button onClick={deleteYarn} className="flex-1 rounded-xl bg-craft-rose py-2.5 text-sm font-extrabold text-white hover:bg-craft-rose-deep transition-colors">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Scan Modal */}
+      {showScan && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="font-serif text-xl font-semibold">📸 Yarn Scan</h2>
+              <button onClick={resetScan} className="rounded-lg p-1 text-warm-gray hover:bg-warm-bg">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Image preview */}
+            {scanImage && (
+              <div className="mb-4 rounded-xl overflow-hidden border border-warm-wood-pale">
+                <img src={scanImage} alt="Scanned yarn" className="w-full h-48 object-cover" />
+              </div>
+            )}
+
+            {/* Loading state */}
+            {scanLoading && (
+              <div className="flex flex-col items-center py-8">
+                <div className="mb-3 h-10 w-10 animate-spin rounded-full border-4 border-sage border-t-transparent" />
+                <p className="text-sm font-bold text-warm-gray">Analyzing your yarn...</p>
+                <p className="text-[12px] text-warm-gray mt-1">This may take a few seconds</p>
+              </div>
+            )}
+
+            {/* Error */}
+            {scanError && (
+              <div className="mb-4 rounded-xl bg-craft-rose-light px-4 py-3 text-[13px] font-bold text-craft-rose text-center">
+                {scanError}
+              </div>
+            )}
+
+            {/* Results */}
+            {!scanLoading && scanResults.length > 0 && (
+              <div>
+                <p className="text-[13px] font-bold text-warm-gray mb-3">
+                  Found {scanResults.length} yarn{scanResults.length !== 1 ? "s" : ""} — tap to save each one
+                </p>
+                <div className="space-y-3">
+                  {scanResults.map((yarn, i) => {
+                    const saved = savedScans.has(i);
+                    const saving = scanSavingId === i;
+                    return (
+                      <div
+                        key={i}
+                        className={`rounded-xl border-2 p-4 transition-all ${
+                          saved
+                            ? "border-sage bg-sage/10"
+                            : "border-warm-wood-pale bg-warm-bg"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div
+                            className="h-10 w-10 flex-shrink-0 rounded-lg border border-warm-wood-pale"
+                            style={{ background: yarn.color_hex || "#808080" }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[14px] font-extrabold text-warm-dark truncate">
+                                {yarn.brand !== "Unknown" ? yarn.brand : ""} {yarn.name}
+                              </span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                yarn.confidence === "high" ? "bg-sage/20 text-sage" :
+                                yarn.confidence === "medium" ? "bg-sun/20 text-warm-dark" :
+                                "bg-warm-wood-pale text-warm-gray"
+                              }`}>
+                                {yarn.confidence}
+                              </span>
+                            </div>
+                            <div className="text-[12px] text-warm-gray mt-0.5">
+                              {[yarn.weight, yarn.fiber, yarn.yardage_per_skein ? `${yarn.yardage_per_skein}yd` : null]
+                                .filter(Boolean)
+                                .join(" · ")}
+                              {yarn.quantity_estimate > 1 && (
+                                <span className="ml-1 font-bold">×{yarn.quantity_estimate}</span>
+                              )}
+                            </div>
+                            {yarn.notes && (
+                              <div className="text-[11px] text-warm-gray mt-1 italic">{yarn.notes}</div>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => saveScanYarn(yarn, i)}
+                            disabled={saved || saving}
+                            className={`flex-shrink-0 rounded-lg px-3 py-1.5 text-[12px] font-extrabold transition-all ${
+                              saved
+                                ? "bg-sage/20 text-sage cursor-default"
+                                : "bg-sage text-white hover:bg-sage-deep active:scale-95"
+                            }`}
+                          >
+                            {saved ? "✓ Saved" : saving ? "..." : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* No results */}
+            {!scanLoading && scanResults.length === 0 && !scanError && (
+              <div className="text-center py-6">
+                <p className="text-sm text-warm-gray">No yarn detected in this photo.</p>
+                <p className="text-[12px] text-warm-gray mt-1">Try a closer shot or better lighting.</p>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => { resetScan(); scanInputRef.current?.click(); }}
+                className="flex-1 rounded-xl border-2 border-warm-wood-pale bg-white py-2.5 text-sm font-bold text-warm-gray hover:bg-warm-bg transition-colors"
+              >
+                Retake Photo
+              </button>
+              <button
+                onClick={resetScan}
+                className="flex-1 rounded-xl bg-sage py-2.5 text-sm font-extrabold text-white hover:bg-sage-deep transition-colors"
+              >
+                Done
+              </button>
             </div>
           </div>
         </div>
