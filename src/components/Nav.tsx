@@ -9,6 +9,7 @@ import BottomNav from "./BottomNav";
 const navItems = [
   { href: "/", label: "Projects" },
   { href: "/stash", label: "Stash" },
+  { href: "/stitches", label: "Stitches" },
   { href: "/patterns", label: "Patterns" },
   { href: "/journal", label: "Journal" },
 ];

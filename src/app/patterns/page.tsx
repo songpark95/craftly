@@ -8,16 +8,23 @@ import { PatternCardSkeleton } from "@/components/Skeleton";
 import { createClient } from "@/lib/supabase/client";
 import { Search as SearchIcon, Plus, FileText, Upload } from "lucide-react";
 
-interface Pattern {
+interface ProjectPattern {
   id: string;
   name: string;
   type: string;
   category: string | null;
   difficulty: number;
   description: string | null;
+  materials: string | null;
+  yardage: string | null;
+  needle_size: string | null;
+  gauge: string | null;
+  sizes: string[] | null;
+  instructions: string | null;
   url: string | null;
   saved: boolean;
   tags: string[] | null;
+  notes: string | null;
   pdf_url: string | null;
   pdf_name: string | null;
   user_id: string;
@@ -25,68 +32,21 @@ interface Pattern {
 
 const CATEGORIES = [
   { key: "all", label: "All", emoji: "✨" },
-  { key: "texture", label: "Texture", emoji: "🌿" },
-  { key: "cable", label: "Cable", emoji: "⚡" },
-  { key: "lace", label: "Lace", emoji: "🌸" },
-  { key: "colorwork", label: "Colorwork", emoji: "🎨" },
-  { key: "foundation", label: "Foundation", emoji: "🌀" },
-  { key: "edging", label: "Edging", emoji: "🧩" },
+  { key: "socks", label: "Socks", emoji: "🧦" },
+  { key: "hats", label: "Hats", emoji: "🧢" },
+  { key: "sweaters", label: "Sweaters", emoji: "🧶" },
+  { key: "scarves", label: "Scarves", emoji: "🧣" },
+  { key: "blankets", label: "Blankets", emoji: "🧺" },
+  { key: "shawls", label: "Shawls", emoji: "🕌" },
+  { key: "accessories", label: "Accessories", emoji: "📿" },
+  { key: "garments", label: "Garments", emoji: "👕" },
+  { key: "home", label: "Home", emoji: "🏠" },
 ];
-
-function StitchPreview({ type }: { type: string }) {
-  const isKnit = type === "knit";
-  const grid = isKnit
-    ? [
-        [1, 0, 1, 0, 1, 0],
-        [0, 1, 0, 1, 0, 1],
-        [1, 0, 1, 0, 1, 0],
-        [0, 1, 0, 1, 0, 1],
-      ]
-    : [
-        [0, 0, 1, 1, 0, 0],
-        [0, 1, 0, 0, 1, 0],
-        [1, 0, 0, 0, 0, 1],
-        [0, 1, 0, 0, 1, 0],
-      ];
-
-  return (
-    <div
-      className="flex h-24 items-center justify-center rounded-t-2xl"
-      style={{
-        background: isKnit ? "var(--sage-light)" : "var(--purple-light)",
-      }}
-    >
-      <div
-        className="grid gap-[3px]"
-        style={{ gridTemplateColumns: `repeat(${grid[0].length}, 16px)` }}
-      >
-        {grid.flat().map((v, i) => (
-          <div
-            key={i}
-            className="h-4 w-4 rounded-[3px]"
-            style={{
-              background: v
-                ? isKnit
-                  ? "var(--sage)"
-                  : "var(--purple)"
-                : isKnit
-                ? "var(--sage-light)"
-                : "var(--purple-light)",
-              border: !v
-                ? `1px solid ${isKnit ? "var(--sage)" : "var(--purple)"}`
-                : undefined,
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function PatternsPage() {
   const router = useRouter();
   const supabase = createClient();
-  const [patterns, setPatterns] = useState<Pattern[]>([]);
+  const [patterns, setPatterns] = useState<ProjectPattern[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<"all" | "knit" | "crochet">("all");
   const [catFilter, setCatFilter] = useState("all");
@@ -100,6 +60,12 @@ export default function PatternsPage() {
   const [editPatternCategory, setEditPatternCategory] = useState("");
   const [editPatternDifficulty, setEditPatternDifficulty] = useState(1);
   const [editPatternDescription, setEditPatternDescription] = useState("");
+  const [editPatternMaterials, setEditPatternMaterials] = useState("");
+  const [editPatternYardage, setEditPatternYardage] = useState("");
+  const [editPatternNeedleSize, setEditPatternNeedleSize] = useState("");
+  const [editPatternGauge, setEditPatternGauge] = useState("");
+  const [editPatternSizes, setEditPatternSizes] = useState("");
+  const [editPatternTags, setEditPatternTags] = useState("");
   const [editPatternSaving, setEditPatternSaving] = useState(false);
   const [editPatternPdf, setEditPatternPdf] = useState<File | null>(null);
   const [editPatternUploadingPdf, setEditPatternUploadingPdf] = useState(false);
@@ -118,62 +84,154 @@ export default function PatternsPage() {
     setPatterns(data || []);
   };
 
-  const openEditPattern = (p: Pattern) => {
+  const openEditPattern = (p: ProjectPattern) => {
     setEditingPatternId(p.id);
     setEditPatternName(p.name);
     setEditPatternType(p.type as "knit" | "crochet");
     setEditPatternCategory(p.category || "");
     setEditPatternDifficulty(p.difficulty || 1);
     setEditPatternDescription(p.description || "");
+    setEditPatternMaterials(p.materials || "");
+    setEditPatternYardage(p.yardage || "");
+    setEditPatternNeedleSize(p.needle_size || "");
+    setEditPatternGauge(p.gauge || "");
+    setEditPatternSizes(p.sizes ? p.sizes.join(", ") : "");
+    setEditPatternTags(p.tags ? p.tags.join(", ") : "");
     setEditPatternPdf(null);
     setEditPatternExistingPdf(p.pdf_url ? { url: p.pdf_url, name: p.pdf_name || "Pattern.pdf" } : null);
     setShowEditPattern(true);
   };
 
+  const openNewPattern = () => {
+    setEditingPatternId(null);
+    setEditPatternName("");
+    setEditPatternType("knit");
+    setEditPatternCategory("");
+    setEditPatternDifficulty(1);
+    setEditPatternDescription("");
+    setEditPatternMaterials("");
+    setEditPatternYardage("");
+    setEditPatternNeedleSize("");
+    setEditPatternGauge("");
+    setEditPatternSizes("");
+    setEditPatternTags("");
+    setEditPatternPdf(null);
+    setEditPatternExistingPdf(null);
+    setShowEditPattern(true);
+  };
+
   const saveEditPattern = async () => {
-    if (!editingPatternId || !editPatternName.trim()) return;
+    if (!editPatternName.trim()) return;
     setEditPatternSaving(true);
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setEditPatternSaving(false); return; }
 
-    await supabase
-      .from("patterns")
-      .update({
-        name: editPatternName.trim(),
-        type: editPatternType,
-        category: editPatternCategory || null,
-        difficulty: editPatternDifficulty,
-        description: editPatternDescription.trim(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", editingPatternId);
+    const sizesArr = editPatternSizes
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
 
-    // Upload new PDF if one was selected
-    if (editPatternPdf) {
-      setEditPatternUploadingPdf(true);
-      try {
-        const ext = editPatternPdf.name.split(".").pop() || "pdf";
-        const path = `patterns/${user.id}/${editingPatternId}.${ext}`;
+    const tagsArr = editPatternTags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
 
-        const { error: uploadErr } = await supabase.storage
-          .from("pattern-pdfs")
-          .upload(path, editPatternPdf, { upsert: true });
+    if (editingPatternId) {
+      // Updating existing pattern
+      await supabase
+        .from("patterns")
+        .update({
+          name: editPatternName.trim(),
+          type: editPatternType,
+          category: editPatternCategory || null,
+          difficulty: editPatternDifficulty,
+          description: editPatternDescription.trim() || null,
+          materials: editPatternMaterials.trim() || null,
+          yardage: editPatternYardage.trim() || null,
+          needle_size: editPatternNeedleSize.trim() || null,
+          gauge: editPatternGauge.trim() || null,
+          sizes: sizesArr.length > 0 ? sizesArr : null,
+          tags: tagsArr.length > 0 ? tagsArr : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", editingPatternId);
 
-        if (!uploadErr) {
-          const { data: urlData } = supabase.storage
+      // Upload new PDF if one was selected
+      if (editPatternPdf) {
+        setEditPatternUploadingPdf(true);
+        try {
+          const ext = editPatternPdf.name.split(".").pop() || "pdf";
+          const path = `patterns/${user.id}/${editingPatternId}.${ext}`;
+
+          const { error: uploadErr } = await supabase.storage
             .from("pattern-pdfs")
-            .getPublicUrl(path);
+            .upload(path, editPatternPdf, { upsert: true });
 
-          await supabase
-            .from("patterns")
-            .update({ pdf_url: urlData.publicUrl, pdf_name: editPatternPdf.name })
-            .eq("id", editingPatternId);
+          if (!uploadErr) {
+            const { data: urlData } = supabase.storage
+              .from("pattern-pdfs")
+              .getPublicUrl(path);
+
+            await supabase
+              .from("patterns")
+              .update({ pdf_url: urlData.publicUrl, pdf_name: editPatternPdf.name })
+              .eq("id", editingPatternId);
+          }
+        } catch (err) {
+          console.error("PDF upload error:", err);
         }
-      } catch (err) {
-        console.error("PDF upload error:", err);
+        setEditPatternUploadingPdf(false);
       }
-      setEditPatternUploadingPdf(false);
+    } else {
+      // Creating new pattern
+      const { data: newPattern, error: insertErr } = await supabase
+        .from("patterns")
+        .insert({
+          name: editPatternName.trim(),
+          type: editPatternType,
+          category: editPatternCategory || null,
+          difficulty: editPatternDifficulty,
+          description: editPatternDescription.trim() || null,
+          materials: editPatternMaterials.trim() || null,
+          yardage: editPatternYardage.trim() || null,
+          needle_size: editPatternNeedleSize.trim() || null,
+          gauge: editPatternGauge.trim() || null,
+          sizes: sizesArr.length > 0 ? sizesArr : null,
+          tags: tagsArr.length > 0 ? tagsArr : null,
+          user_id: user.id,
+        })
+        .select()
+        .single();
+
+      if (insertErr) {
+        console.error("Failed to create pattern:", insertErr);
+      } else if (newPattern && editPatternPdf) {
+        // Upload PDF for new pattern
+        setEditPatternUploadingPdf(true);
+        try {
+          const ext = editPatternPdf.name.split(".").pop() || "pdf";
+          const path = `patterns/${user.id}/${newPattern.id}.${ext}`;
+
+          const { error: uploadErr } = await supabase.storage
+            .from("pattern-pdfs")
+            .upload(path, editPatternPdf, { upsert: true });
+
+          if (!uploadErr) {
+            const { data: urlData } = supabase.storage
+              .from("pattern-pdfs")
+              .getPublicUrl(path);
+
+            await supabase
+              .from("patterns")
+              .update({ pdf_url: urlData.publicUrl, pdf_name: editPatternPdf.name })
+              .eq("id", newPattern.id);
+          }
+        } catch (err) {
+          console.error("PDF upload error:", err);
+        }
+        setEditPatternUploadingPdf(false);
+      }
     }
 
     await refreshPatterns();
@@ -211,18 +269,8 @@ export default function PatternsPage() {
         .eq("user_id", user.id)
         .order("name");
 
-      // Auto-seed if user has no patterns yet
-      if (!data || data.length === 0) {
-        await fetch("/api/seed-patterns", { method: "POST" });
-        const { data: seeded } = await supabase
-          .from("patterns")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("name");
-        setPatterns(seeded || []);
-      } else {
-        setPatterns(data);
-      }
+      // Patterns start empty — no seed API
+      setPatterns(data || []);
       setLoading(false);
     }
     load();
@@ -242,17 +290,17 @@ export default function PatternsPage() {
       <Nav />
       <main className="relative z-10 mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
         <div className="mb-6">
-          <h1 className="font-serif text-2xl mb-1">📖 Stitch Patterns</h1>
+          <h1 className="font-serif text-2xl mb-1">📋 Project Patterns</h1>
           <p className="text-sm font-semibold text-warm-gray mb-4">
             {loading ? "Loading..." : `${savedCount} saved · ${patterns.length} total`}
           </p>
-          <Link
-            href="/patterns/new"
+          <button
+            onClick={openNewPattern}
             className="w-full flex items-center justify-center gap-2 rounded-2xl bg-sage px-6 py-4 text-base font-extrabold text-white shadow-soft transition-all hover:bg-sage-deep hover:-translate-y-0.5 hover:shadow-lifted active:scale-[0.98]"
           >
             <Plus size={20} />
             Add Pattern
-          </Link>
+          </button>
         </div>
 
         {/* Filters */}
@@ -326,10 +374,10 @@ export default function PatternsPage() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-2xl bg-white p-12 shadow-soft border border-warm-wood-pale">
-            <div className="mb-4 text-4xl">📖</div>
+            <div className="mb-4 text-4xl">📋</div>
             <h2 className="font-serif text-xl mb-2">No patterns yet</h2>
             <p className="text-sm text-warm-gray mb-6 text-center max-w-md">
-              Save your favorite stitch patterns to reference them later.
+              Save your favorite project patterns to reference them later — socks, hats, sweaters, and more.
             </p>
           </div>
         ) : (
@@ -340,11 +388,21 @@ export default function PatternsPage() {
                 href={`/patterns/${pattern.id}`}
                 className="group relative overflow-hidden rounded-2xl bg-white shadow-soft border border-warm-wood-pale transition-all hover:-translate-y-0.5 hover:shadow-lifted block"
               >
-                <StitchPreview type={pattern.type} />
+                {/* Color header based on type */}
+                <div
+                  className="flex h-12 items-center justify-center rounded-t-2xl"
+                  style={{
+                    background: pattern.type === "knit" ? "var(--sage-light)" : "var(--purple-light)",
+                  }}
+                >
+                  <span className="text-lg opacity-40">
+                    {pattern.type === "knit" ? "🧶" : "🪝"}
+                  </span>
+                </div>
                 <div className="p-4">
                   <div className="flex items-start justify-between mb-1 gap-2">
                     <h3 className="text-[15px] font-extrabold truncate min-w-0 flex-1">{pattern.name}</h3>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 shrink-0">
                       <span
                         className={`rounded-md px-2 py-0.5 text-[10px] font-extrabold uppercase ${
                           pattern.type === "knit"
@@ -354,6 +412,9 @@ export default function PatternsPage() {
                       >
                         {pattern.type}
                       </span>
+                      {pattern.pdf_url && (
+                        <span className="text-[14px]" title="Has PDF">📄</span>
+                      )}
                       <div className="relative">
                         <button
                           onClick={(e) => {
@@ -386,7 +447,7 @@ export default function PatternsPage() {
                       </div>
                     </div>
                   </div>
-                  <p className="text-[12px] text-warm-gray mb-3 leading-relaxed">
+                  <p className="text-[12px] text-warm-gray mb-3 leading-relaxed line-clamp-2">
                     {pattern.description}
                   </p>
                   {pattern.tags && pattern.tags.length > 0 && (
@@ -421,24 +482,27 @@ export default function PatternsPage() {
             ))}
 
             {/* Add Pattern Card */}
-            <Link href="/patterns/new">
-              <div className="flex min-h-[280px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-warm-wood-pale bg-warm-bg transition-all hover:border-sage hover:bg-sage-light cursor-pointer">
-                <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white text-2xl text-sage shadow-soft">
-                  +
-                </div>
-                <span className="text-sm font-bold text-warm-gray">Add a new pattern</span>
+            <button
+              onClick={openNewPattern}
+              className="flex min-h-[280px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-warm-wood-pale bg-warm-bg transition-all hover:border-sage hover:bg-sage-light cursor-pointer w-full"
+            >
+              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white text-2xl text-sage shadow-soft">
+                +
               </div>
-            </Link>
+              <span className="text-sm font-bold text-warm-gray">Add a new pattern</span>
+            </button>
           </div>
         )}
       </main>
 
       {/* Edit Pattern Modal */}
       {showEditPattern && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 overflow-y-auto">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale my-8">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="font-serif text-xl font-semibold">Edit Pattern</h2>
+              <h2 className="font-serif text-xl font-semibold">
+                {editingPatternId ? "Edit Pattern" : "New Pattern"}
+              </h2>
               <button onClick={() => setShowEditPattern(false)} className="rounded-lg p-1 text-warm-gray hover:bg-warm-bg">✕</button>
             </div>
             <div className="mb-3">
@@ -468,9 +532,33 @@ export default function PatternsPage() {
                 ))}
               </div>
             </div>
-            <div className="mb-6">
+            <div className="mb-3">
               <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Description</label>
               <textarea value={editPatternDescription} onChange={(e) => setEditPatternDescription(e.target.value)} rows={3} className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage resize-none" />
+            </div>
+            <div className="mb-3">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Materials</label>
+              <input type="text" value={editPatternMaterials} onChange={(e) => setEditPatternMaterials(e.target.value)} placeholder="e.g. Worsted weight wool, 400g" className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage" />
+            </div>
+            <div className="mb-3">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Yardage</label>
+              <input type="text" value={editPatternYardage} onChange={(e) => setEditPatternYardage(e.target.value)} placeholder="e.g. 400–500 yards" className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage" />
+            </div>
+            <div className="mb-3">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Needle / Hook Size</label>
+              <input type="text" value={editPatternNeedleSize} onChange={(e) => setEditPatternNeedleSize(e.target.value)} placeholder="e.g. US 8 (5mm)" className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage" />
+            </div>
+            <div className="mb-3">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Gauge</label>
+              <input type="text" value={editPatternGauge} onChange={(e) => setEditPatternGauge(e.target.value)} placeholder="e.g. 20 sts × 28 rows = 4 in" className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage" />
+            </div>
+            <div className="mb-3">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Sizes (comma-separated)</label>
+              <input type="text" value={editPatternSizes} onChange={(e) => setEditPatternSizes(e.target.value)} placeholder="e.g. XS, S, M, L, XL" className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage" />
+            </div>
+            <div className="mb-3">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Tags (comma-separated)</label>
+              <input type="text" value={editPatternTags} onChange={(e) => setEditPatternTags(e.target.value)} placeholder="e.g. beginner, quick, fade" className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage" />
             </div>
             {/* Pattern PDF */}
             <div className="mb-6">
@@ -523,7 +611,7 @@ export default function PatternsPage() {
                   <input
                     ref={editPdfInputRef}
                     type="file"
-                    accept=".pdf,.jpg,.jpeg,.png"
+                    accept=".pdf"
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
@@ -535,7 +623,7 @@ export default function PatternsPage() {
               )}
             </div>
             <button onClick={saveEditPattern} disabled={editPatternSaving || !editPatternName.trim()} className="w-full rounded-xl bg-sage py-3 text-sm font-extrabold text-white transition-all hover:bg-sage-deep disabled:opacity-50">
-              {editPatternSaving ? (editPatternUploadingPdf ? "Uploading PDF..." : "Saving...") : "Save Changes"}
+              {editPatternSaving ? (editPatternUploadingPdf ? "Uploading PDF..." : "Saving...") : editingPatternId ? "Save Changes" : "Create Pattern"}
             </button>
           </div>
         </div>

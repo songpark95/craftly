@@ -7,6 +7,7 @@ import { Home, Package, BookOpen, Timer, Plus } from "lucide-react";
 const tabs = [
   { href: "/", label: "Projects", icon: Home },
   { href: "/stash", label: "Stash", icon: Package },
+  { href: "/stitches", label: "Stitches", icon: BookOpen },
   { href: "/patterns", label: "Patterns", icon: BookOpen },
   { href: "/journal", label: "Journal", icon: Timer },
 ];

@@ -125,8 +125,8 @@ export default function OnboardingPage() {
       // Let them through anyway
     }
 
-    // Seed starter patterns in background (fire-and-forget)
-    fetch("/api/seed-patterns", { method: "POST" }).catch(() => {});
+    // Seed starter stitch library in background (fire-and-forget)
+    fetch("/api/seed-stitches", { method: "POST" }).catch(() => {});
 
     router.push("/");
     router.refresh();

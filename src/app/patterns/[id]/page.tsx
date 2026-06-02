@@ -14,25 +14,37 @@ interface PatternData {
   category: string | null;
   difficulty: number;
   description: string | null;
+  materials: string | null;
+  yardage: string | null;
+  needle_size: string | null;
+  gauge: string | null;
+  sizes: string[] | null;
   instructions: string | null;
   notes: string | null;
   saved: boolean;
   tags: string[] | null;
-  stitch_key: { repeat: number; rows: number; note: string } | null;
-  chart_data: string[][] | null;
   pdf_url: string | null;
   pdf_name: string | null;
   user_id: string;
 }
 
 const CATEGORIES: Record<string, string> = {
-  texture: "✨ Texture",
-  cable: "⚡ Cable",
-  lace: "🌸 Lace",
-  colorwork: "🎨 Colorwork",
-  foundation: "🌀 Foundation",
-  edging: "🧩 Edging",
+  garment: "🧥 Garment",
+  accessory: "🧣 Accessory",
+  socks: "🧦 Socks",
+  hat: "🎩 Hat",
+  home: "🏠 Home",
+  baby: "👶 Baby",
+  shawl: "🧶 Shawl",
+  toy: "🧸 Toy",
 };
+
+const MATERIAL_FIELDS: { key: keyof PatternData; label: string }[] = [
+  { key: "materials", label: "Materials" },
+  { key: "yardage", label: "Yardage" },
+  { key: "needle_size", label: "Needle / Hook" },
+  { key: "gauge", label: "Gauge" },
+];
 
 export default function PatternDetailPage() {
   const params = useParams();
@@ -233,95 +245,45 @@ export default function PatternDetailPage() {
           </div>
         )}
 
-        {/* Stitch Key + Chart Row */}
-        {(pattern.stitch_key || pattern.chart_data) && (
-          <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Stitch Key */}
-            {pattern.stitch_key && (
-              <div className="rounded-2xl bg-white p-5 shadow-soft border border-warm-wood-pale">
-                <h2 className="mb-3 text-xs font-extrabold uppercase tracking-wider text-warm-gray">
-                  Stitch Key
-                </h2>
-                <div className="space-y-2">
-                  {pattern.stitch_key.repeat > 0 && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-bold text-warm-gray w-20 shrink-0">Repeat</span>
-                      <span className="text-sm font-semibold text-warm-dark">
-                        {pattern.stitch_key.repeat} sts × {pattern.stitch_key.rows} rows
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-start gap-2">
-                    <span className="text-[11px] font-bold text-warm-gray w-20 shrink-0 pt-0.5">Note</span>
-                    <span className="text-[13px] leading-relaxed text-warm-dark">
-                      {pattern.stitch_key.note}
-                    </span>
+        {/* Materials & Sizing */}
+        {(pattern.materials || pattern.yardage || pattern.needle_size || pattern.gauge || (pattern.sizes && pattern.sizes.length > 0)) && (
+          <div className="mb-6 rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
+            <h2 className="mb-4 text-xs font-extrabold uppercase tracking-wider text-warm-gray">
+              Materials &amp; Sizing
+            </h2>
+            <dl className="space-y-2.5">
+              {MATERIAL_FIELDS.map((field) => {
+                const value = pattern[field.key];
+                if (!value) return null;
+                return (
+                  <div key={field.key} className="flex items-start gap-4">
+                    <dt className="w-28 shrink-0 text-[11px] font-bold text-warm-gray">
+                      {field.label}
+                    </dt>
+                    <dd className="text-sm font-semibold text-warm-dark">
+                      {value}
+                    </dd>
                   </div>
+                );
+              })}
+              {pattern.sizes && pattern.sizes.length > 0 && (
+                <div className="flex items-start gap-4">
+                  <dt className="w-28 shrink-0 text-[11px] font-bold text-warm-gray">
+                    Sizes
+                  </dt>
+                  <dd className="flex flex-wrap gap-1.5">
+                    {pattern.sizes.map((size) => (
+                      <span
+                        key={size}
+                        className="rounded-md bg-warm-bg px-2.5 py-0.5 text-[12px] font-bold text-warm-dark border border-warm-wood-pale"
+                      >
+                        {size}
+                      </span>
+                    ))}
+                  </dd>
                 </div>
-              </div>
-            )}
-
-            {/* Chart */}
-            {pattern.chart_data && pattern.chart_data.length > 0 && (
-              <div className="rounded-2xl bg-white p-5 shadow-soft border border-warm-wood-pale">
-                <h2 className="mb-3 text-xs font-extrabold uppercase tracking-wider text-warm-gray">
-                  Chart
-                </h2>
-                <div className="flex justify-center">
-                  <div className="inline-grid gap-[2px]" style={{ gridTemplateColumns: `repeat(${pattern.chart_data[0]?.length || 1}, minmax(0, 1fr))` }}>
-                    {pattern.chart_data.map((row, ri) =>
-                      row.map((cell, ci) => (
-                        <div
-                          key={`${ri}-${ci}`}
-                          className={`flex h-8 w-8 items-center justify-center rounded text-[10px] font-bold border ${
-                            cell === "." ? "bg-white text-warm-gray border-warm-wood-pale" :
-                            cell === "-" ? "bg-sage-light text-sage-deep border-sage" :
-                            cell === "sc" ? "bg-white text-warm-dark border-warm-wood-pale" :
-                            cell === "dc" ? "bg-sage-light text-sage-deep border-sage" :
-                            cell === "hdc" ? "bg-craft-purple-light text-craft-purple border-craft-purple" :
-                            cell === "FP" ? "bg-craft-amber-light text-craft-amber border-craft-amber" :
-                            cell === "BO" ? "bg-craft-rose-light text-craft-rose border-craft-rose" :
-                            cell === "V" ? "bg-sage-light text-sage-deep border-sage" :
-                            cell === "dc3" ? "bg-sage-light text-sage-deep border-sage" :
-                            cell === "sh5" ? "bg-sage text-white border-sage-deep" :
-                            cell.startsWith("t") ? "bg-craft-purple-light text-craft-purple border-craft-purple" :
-                            "bg-white text-warm-gray border-warm-wood-pale"
-                          }`}
-                          title={cell}
-                        >
-                          {cell}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-                {/* Legend */}
-                <div className="mt-3 flex flex-wrap gap-2 justify-center">
-                  {pattern.type === "knit" ? (
-                    <>
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warm-gray">
-                        <span className="inline-block h-3 w-3 rounded border border-warm-wood-pale bg-white" /> knit (RS)
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warm-gray">
-                        <span className="inline-block h-3 w-3 rounded border border-sage bg-sage-light" /> purl (RS)
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warm-gray">
-                        <span className="inline-block h-3 w-3 rounded border border-warm-wood-pale bg-white" /> sc
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warm-gray">
-                        <span className="inline-block h-3 w-3 rounded border border-sage bg-sage-light" /> dc
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warm-gray">
-                        <span className="inline-block h-3 w-3 rounded border border-craft-purple bg-craft-purple-light" /> hdc/cluster
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
+              )}
+            </dl>
           </div>
         )}
 
