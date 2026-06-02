@@ -6,6 +6,7 @@ import Nav from "@/components/Nav";
 import { YarnCardSkeleton } from "@/components/Skeleton";
 import { createClient } from "@/lib/supabase/client";
 import { Search as SearchIcon, Plus, Link as LinkIcon, X } from "lucide-react";
+import { searchYarnTemplates, YarnTemplate } from "@/lib/yarn-templates";
 
 const PRESET_COLORS = [
   "#4A7C59", "#D4A843", "#7B5EA7", "#C9707D",
@@ -48,6 +49,7 @@ export default function StashPage() {
   const [yarnYardage, setYarnYardage] = useState("");
   const [yarnSaving, setYarnSaving] = useState(false);
   const [yarnError, setYarnError] = useState<string | null>(null);
+  const [yarnSuggestions, setYarnSuggestions] = useState<YarnTemplate[]>([]);
 
   // Edit/Delete yarn
   const [editingYarnId, setEditingYarnId] = useState<string | null>(null);
@@ -89,7 +91,24 @@ export default function StashPage() {
     setYarnWeight("");
     setYarnFiber("");
     setYarnQuantity(1);
+    setYarnYardage("");
     setYarnError(null);
+    setYarnSuggestions([]);
+  };
+
+  const applyTemplate = (t: YarnTemplate) => {
+    setYarnName(`${t.brand} ${t.name}`);
+    setYarnBrand(t.brand);
+    setYarnWeight(t.weight);
+    setYarnFiber(t.fiber);
+    if (t.colors.length > 0) setYarnColor(t.colors[0]);
+    if (t.yardage_per_skein) setYarnYardage(String(t.yardage_per_skein));
+    setYarnSuggestions([]);
+  };
+
+  const handleYarnNameChange = (val: string) => {
+    setYarnName(val);
+    setYarnSuggestions(searchYarnTemplates(val));
   };
 
   const handleAddYarn = async (e: React.FormEvent) => {
@@ -452,20 +471,37 @@ export default function StashPage() {
             )}
 
             <form onSubmit={handleAddYarn}>
-              {/* Name */}
-              <div className="mb-3">
+              {/* Name with autocomplete */}
+              <div className="mb-3 relative">
                 <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
                   Name <span className="text-craft-rose">*</span>
                 </label>
                 <input
                   type="text"
                   value={yarnName}
-                  onChange={(e) => setYarnName(e.target.value)}
+                  onChange={(e) => handleYarnNameChange(e.target.value)}
+                  onFocus={() => { if (yarnName.length >= 2) setYarnSuggestions(searchYarnTemplates(yarnName)); }}
+                  onBlur={() => setTimeout(() => setYarnSuggestions([]), 200)}
                   placeholder="e.g. Malabrigo Rios"
                   required
                   autoFocus
                   className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage"
                 />
+                {yarnSuggestions.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full rounded-xl border border-warm-wood-pale bg-white py-1 shadow-lifted max-h-48 overflow-y-auto">
+                    {yarnSuggestions.map((s, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); applyTemplate(s); }}
+                        className="w-full px-3 py-2 text-left hover:bg-sage-light transition-colors"
+                      >
+                        <span className="text-[13px] font-bold text-warm-dark">{s.brand} {s.name}</span>
+                        <span className="ml-2 text-[11px] text-warm-gray">{s.weight} · {s.fiber} · {s.yardage_per_skein}yd</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Brand */}
