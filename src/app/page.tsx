@@ -7,6 +7,12 @@ import Nav from "@/components/Nav";
 import { ProjectCardSkeleton } from "@/components/Skeleton";
 import { createClient } from "@/lib/supabase/client";
 
+interface UserProfile {
+  experience_level: string;
+  craft_preference: string[];
+  onboarding_completed: boolean;
+}
+
 interface Project {
   id: string;
   name: string;
@@ -22,6 +28,13 @@ interface Project {
   updated_at: string;
 }
 
+const WELCOME_BY_LEVEL: Record<string, { title: string; subtitle: string }> = {
+  beginner: { title: "Welcome to Craftly", subtitle: "Let's get your first project going" },
+  casual: { title: "Your Craft Room", subtitle: "Pick up where you left off" },
+  intermediate: { title: "Your Craft Room", subtitle: "" },
+  obsessive: { title: "Your Craft Room", subtitle: "" },
+};
+
 export default function Home() {
   const router = useRouter();
   const supabase = createClient();
@@ -29,6 +42,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "wip" | "queued" | "done">("all");
   const [now] = useState(() => Date.now());
+  const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -42,16 +56,18 @@ export default function Home() {
       }
 
       // Check if onboarding is complete
-      const { data: profile } = await supabase
+      const { data: profileData } = await supabase
         .from("user_profiles")
-        .select("onboarding_completed")
+        .select("experience_level, craft_preference, onboarding_completed")
         .eq("id", user.id)
         .single();
 
-      if (!profile || !profile.onboarding_completed) {
+      if (!profileData || !profileData.onboarding_completed) {
         router.push("/onboarding");
         return;
       }
+
+      setProfile(profileData);
 
       const { data } = await supabase
         .from("projects")
@@ -93,10 +109,14 @@ export default function Home() {
         {/* Hero Counter — the primary CTA */}
         <section className="mb-8 flex items-center gap-4">
           <div className="flex-1">
-            <h1 className="font-serif text-3xl">Your Craft Room</h1>
+            <h1 className="font-serif text-3xl">
+              {profile ? (WELCOME_BY_LEVEL[profile.experience_level]?.title || "Your Craft Room") : "Your Craft Room"}
+            </h1>
             <p className="text-sm font-semibold text-warm-gray">
               {loading ? (
                 <span className="inline-block h-4 w-48 animate-pulse bg-warm-wood-pale rounded" />
+              ) : profile?.experience_level === "beginner" && projects.length === 0 ? (
+                WELCOME_BY_LEVEL.beginner.subtitle
               ) : (
                 `${wipProjects.length} in progress · ${queuedProjects.length} queued`
               )}
@@ -138,7 +158,9 @@ export default function Home() {
             <div className="mb-4 text-4xl">🧶</div>
             <h2 className="font-serif text-xl mb-2">No projects yet</h2>
             <p className="text-sm text-warm-gray mb-6 text-center max-w-md">
-              Start your first project and track your rows, sessions, and progress here.
+              {profile?.experience_level === "beginner"
+                ? "Everyone starts somewhere! Create your first project and we'll guide you through tracking your rows."
+                : "Start your first project and track your rows, sessions, and progress here."}
             </p>
             <Link
               href="/projects/new"
@@ -146,6 +168,26 @@ export default function Home() {
             >
               + Start a New Project
             </Link>
+            {profile?.experience_level === "beginner" && (
+              <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-lg">
+                {[
+                  { emoji: "📋", label: "Add your yarn stash", href: "/stash" },
+                  { emoji: "📖", label: "Browse patterns", href: "/patterns" },
+                  { emoji: "📝", label: "Write in your journal", href: "/journal" },
+                ].map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="flex flex-col items-center gap-2 rounded-xl border border-warm-wood-pale bg-warm-bg p-4 text-center transition-all hover:border-sage hover:bg-sage-light"
+                  >
+                    <span className="text-2xl">{item.emoji}</span>
+                    <span className="text-[12px] font-bold text-warm-gray">
+                      {item.label}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <>
