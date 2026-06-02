@@ -49,7 +49,7 @@ export default function SignUpPage() {
 
     // Try to redirect immediately (works if email confirm is off)
     setTimeout(() => {
-      router.push("/");
+      router.push("/onboarding");
       router.refresh();
     }, 1000);
   };

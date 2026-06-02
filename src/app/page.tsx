@@ -41,6 +41,18 @@ export default function Home() {
         return;
       }
 
+      // Check if onboarding is complete
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("onboarding_completed")
+        .eq("id", user.id)
+        .single();
+
+      if (!profile || !profile.onboarding_completed) {
+        router.push("/onboarding");
+        return;
+      }
+
       const { data } = await supabase
         .from("projects")
         .select("*")
