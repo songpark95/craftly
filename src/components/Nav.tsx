@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Plus, Menu, X } from "lucide-react";
 import { useState } from "react";
+import BottomNav from "./BottomNav";
 
 const navItems = [
   { href: "/", label: "Projects" },
@@ -61,7 +62,7 @@ export default function Nav() {
           </div>
         </div>
 
-        {/* Mobile hamburger */}
+        {/* Mobile hamburger — replaced by bottom nav */}
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
           className="md:hidden flex h-11 w-11 items-center justify-center rounded-lg text-warm-gray hover:bg-warm-bg"
@@ -71,7 +72,7 @@ export default function Nav() {
         </button>
       </div>
 
-      {/* Mobile menu */}
+      {/* Mobile menu — kept for settings/account access, but bottom nav is primary */}
       {mobileOpen && (
         <div className="md:hidden border-t border-warm-wood-pale bg-white px-4 pb-4">
           <div className="flex flex-col gap-1 pt-2">
@@ -106,6 +107,7 @@ export default function Nav() {
           </Link>
         </div>
       )}
+      <BottomNav />
     </nav>
   );
 }
