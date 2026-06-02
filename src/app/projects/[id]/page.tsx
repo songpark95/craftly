@@ -80,6 +80,12 @@ export default function ProjectDetail() {
   const [isUpdating, setIsUpdating] = useState(false);
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Session summary modal
+  const [showSessionSummary, setShowSessionSummary] = useState(false);
+  const [sessionSummaryRows, setSessionSummaryRows] = useState("0");
+  const [sessionSummaryNotes, setSessionSummaryNotes] = useState("");
+  const [sessionSaving, setSessionSaving] = useState(false);
+
   // Multi-counter state
   const [counters, setCounters] = useState<CounterData[]>([]);
   const [activeCounterId, setActiveCounterId] = useState<string | null>(null);
@@ -374,45 +380,72 @@ export default function ProjectDetail() {
     setTimerRunning(false);
     setTimerStart(null);
 
-    if (project && userId && timerSeconds > 0) {
-      try {
-        const { error } = await supabase.from("sessions").insert({
-          project_id: project.id,
-          user_id: userId,
-          started_at: new Date(Date.now() - timerSeconds * 1000).toISOString(),
-          ended_at: new Date().toISOString(),
-          duration_seconds: timerSeconds,
-          rows_added: 0,
-        });
-
-        if (error) {
-          console.error("Failed to save session:", error);
-          return;
-        }
-
-        // Reload sessions
-        const { data: sess } = await supabase
-          .from("sessions")
-          .select("*")
-          .eq("project_id", project.id)
-          .order("started_at", { ascending: false })
-          .limit(10);
-
-        setSessions(
-          (sess || []).map((s) => ({
-            id: s.id,
-            date: formatSessionDate(s.started_at),
-            rows_added: s.rows_added || 0,
-            duration_seconds: s.duration_seconds || 0,
-            notes: s.notes,
-          }))
-        );
-      } catch (error) {
-        console.error("Failed to save session:", error);
-      }
+    if (timerSeconds > 0) {
+      // Show summary modal instead of saving immediately
+      setSessionSummaryRows("0");
+      setSessionSummaryNotes("");
+      setShowSessionSummary(true);
+    } else {
+      setTimerSeconds(0);
     }
+  };
 
-    setTimerSeconds(0);
+  const saveSession = async () => {
+    if (!project || !userId || timerSeconds <= 0) return;
+    setSessionSaving(true);
+
+    const rowsAdded = parseInt(sessionSummaryRows) || 0;
+
+    try {
+      const { error } = await supabase.from("sessions").insert({
+        project_id: project.id,
+        user_id: userId,
+        started_at: new Date(Date.now() - timerSeconds * 1000).toISOString(),
+        ended_at: new Date().toISOString(),
+        duration_seconds: timerSeconds,
+        rows_added: rowsAdded,
+        notes: sessionSummaryNotes.trim() || null,
+      });
+
+      if (error) {
+        console.error("Failed to save session:", error);
+        return;
+      }
+
+      // If rows were added, bump the project's current_row
+      if (rowsAdded > 0) {
+        const newTotal = row + rowsAdded;
+        setRow(newTotal);
+        await supabase
+          .from("projects")
+          .update({ current_row: newTotal })
+          .eq("id", project.id);
+      }
+
+      // Reload sessions
+      const { data: sess } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("project_id", project.id)
+        .order("started_at", { ascending: false })
+        .limit(10);
+
+      setSessions(
+        (sess || []).map((s) => ({
+          id: s.id,
+          date: formatSessionDate(s.started_at),
+          rows_added: s.rows_added || 0,
+          duration_seconds: s.duration_seconds || 0,
+          notes: s.notes,
+        }))
+      );
+    } catch (error) {
+      console.error("Failed to save session:", error);
+    } finally {
+      setSessionSaving(false);
+      setShowSessionSummary(false);
+      setTimerSeconds(0);
+    }
   };
 
   const saveNotes = async () => {
@@ -1584,6 +1617,94 @@ export default function ProjectDetail() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Session Summary Modal */}
+      {showSessionSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
+            <div className="mb-4 text-center">
+              <div className="text-4xl mb-2">⏰</div>
+              <h2 className="font-serif text-xl font-semibold">Nice work!</h2>
+              <p className="text-[13px] text-warm-gray mt-1">
+                {Math.floor(timerSeconds / 3600) > 0 && `${Math.floor(timerSeconds / 3600)}h `}
+                {Math.floor((timerSeconds % 3600) / 60)}m {timerSeconds % 60}s logged
+              </p>
+            </div>
+
+            {/* Rows completed */}
+            <div className="mb-4">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                Rows completed
+              </label>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSessionSummaryRows(String(Math.max(0, (parseInt(sessionSummaryRows) || 0) - 1)))}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-warm-wood-pale bg-white text-lg font-bold text-warm-gray hover:border-craft-rose hover:text-craft-rose active:scale-95"
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  value={sessionSummaryRows}
+                  onChange={(e) => setSessionSummaryRows(e.target.value)}
+                  className="flex-1 rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-center text-lg font-bold text-warm-dark outline-none focus:border-sage"
+                  min="0"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSessionSummaryRows(String((parseInt(sessionSummaryRows) || 0) + 1))}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-warm-wood-pale bg-white text-lg font-bold text-warm-gray hover:border-sage hover:text-sage active:scale-95"
+                >
+                  +
+                </button>
+              </div>
+              <div className="mt-2 flex gap-2">
+                {[5, 10, 20].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setSessionSummaryRows(String(n))}
+                    className="rounded-lg border border-warm-wood-pale bg-warm-bg px-3 py-1 text-[12px] font-bold text-warm-gray hover:border-sage hover:text-sage transition-colors"
+                  >
+                    +{n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="mb-5">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                Session notes <span className="text-warm-gray font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={sessionSummaryNotes}
+                onChange={(e) => setSessionSummaryNotes(e.target.value)}
+                placeholder="e.g. Finished the ribbing, started cable section"
+                rows={2}
+                className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none focus:border-sage resize-none"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowSessionSummary(false); setTimerSeconds(0); }}
+                className="flex-1 rounded-xl border-2 border-warm-wood-pale bg-white py-2.5 text-sm font-bold text-warm-gray hover:bg-warm-bg transition-colors"
+              >
+                Discard
+              </button>
+              <button
+                onClick={saveSession}
+                disabled={sessionSaving}
+                className="flex-1 rounded-xl bg-sage py-2.5 text-sm font-extrabold text-white hover:bg-sage-deep transition-colors disabled:opacity-50"
+              >
+                {sessionSaving ? "Saving..." : "Log Session"}
+              </button>
+            </div>
           </div>
         </div>
       )}
