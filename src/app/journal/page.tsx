@@ -30,34 +30,113 @@ interface SessionStats {
 
 const EMOJIS = ["🧣", "🧢", "🧸", "🧤", "🧵", "🎀", "🪢", "🧶"];
 
-function Heatmap() {
+function Heatmap({ sessions }: { sessions: { started_at: string; rows_added: number }[] }) {
   const levelColors = ["#F0E6D6", "#C8DFCA", "#8FBF9A", "#6B9E7A", "#4A7C59"];
+
+  // Build date → rows map from sessions
+  const dateRows = new Map<string, number>();
+  for (const s of sessions) {
+    const dateStr = new Date(s.started_at).toISOString().split("T")[0];
+    dateRows.set(dateStr, (dateRows.get(dateStr) || 0) + (s.rows_added || 0));
+  }
+
+  // Find max rows for scaling
+  const allRows = Array.from(dateRows.values());
+  const maxRows = Math.max(1, ...allRows);
+
+  // Build 26 weeks × 7 days grid (Sun–Sat), ending today
+  const today = new Date();
+  const grid: { date: Date; dateStr: string; rows: number; level: number }[][] = [];
+  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  // Find the start: 26 weeks back from the most recent Sunday
+  const endDate = new Date(today);
+  const endDay = endDate.getDay(); // 0=Sun
+  const startDate = new Date(endDate);
+  startDate.setDate(startDate.getDate() - endDay - (25 * 7)); // 26 weeks total
+
+  for (let week = 0; week < 26; week++) {
+    const weekDays: { date: Date; dateStr: string; rows: number; level: number }[] = [];
+    for (let day = 0; day < 7; day++) {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + week * 7 + day);
+      const dateStr = d.toISOString().split("T")[0];
+      const rows = dateRows.get(dateStr) || 0;
+      // Don't show future dates
+      const isFuture = d > today;
+      let level = 0;
+      if (!isFuture && rows > 0) {
+        const ratio = rows / maxRows;
+        if (ratio <= 0.25) level = 1;
+        else if (ratio <= 0.5) level = 2;
+        else if (ratio <= 0.75) level = 3;
+        else level = 4;
+      }
+      weekDays.push({ date: d, dateStr, rows, level: isFuture ? -1 : level });
+    }
+    grid.push(weekDays);
+  }
+
+  // Find month label positions (first week where the month changes)
+  const monthPositions: { label: string; week: number }[] = [];
+  let lastMonth = -1;
+  for (let week = 0; week < grid.length; week++) {
+    const firstDay = grid[week][0];
+    const m = firstDay.date.getMonth();
+    if (m !== lastMonth) {
+      monthPositions.push({ label: monthLabels[m], week });
+      lastMonth = m;
+    }
+  }
 
   return (
     <div className="rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale mb-6">
       <div className="mb-4">
         <h2 className="font-serif text-lg">Crafting Activity</h2>
         <p className="text-[13px] font-semibold text-warm-gray">
-          Rows completed per day — last 6 months
+          {allRows.length > 0
+            ? `${allRows.reduce((a, b) => a + b, 0)} total rows across ${dateRows.size} days`
+            : "Start logging sessions to see your activity here"}
         </p>
       </div>
-      <div className="flex gap-1 overflow-x-auto pb-2">
-        {Array.from({ length: 26 }, (_, week) => (
-          <div key={week} className="flex flex-col gap-1">
-            {Array.from({ length: 7 }, (_, day) => {
-              const level = Math.floor(Math.random() * 4);
-              return (
-                <div
-                  key={day}
-                  className="h-3.5 w-3.5 rounded-[3px] transition-transform hover:scale-150"
-                  style={{ background: levelColors[level] }}
-                  title={`Week ${week + 1}, Day ${day + 1}`}
-                />
-              );
-            })}
+
+      {/* Month labels */}
+      <div className="flex gap-1 mb-1 ml-6">
+        {monthPositions.map((mp, i) => {
+          const nextWeek = i < monthPositions.length - 1 ? monthPositions[i + 1].week : 26;
+          const span = nextWeek - mp.week;
+          return (
+            <div key={i} className="text-[10px] font-bold text-warm-gray" style={{ width: `${span * 18}px` }}>
+              {mp.label}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex gap-0.5 overflow-x-auto pb-2">
+        {grid.map((week, wi) => (
+          <div key={wi} className="flex flex-col gap-0.5">
+            {week.map((cell, di) => (
+              <div
+                key={di}
+                className={`h-3.5 w-3.5 rounded-[3px] transition-transform hover:scale-150 ${
+                  cell.level === -1 ? "opacity-0 cursor-default" : "cursor-pointer"
+                }`}
+                style={{
+                  background: cell.level >= 0 ? levelColors[cell.level] : "transparent",
+                }}
+                title={
+                  cell.level >= 0
+                    ? `${monthLabels[cell.date.getMonth()]} ${cell.date.getDate()}: ${cell.rows} rows`
+                    : ""
+                }
+              />
+            ))}
           </div>
         ))}
       </div>
+
       <div className="mt-3 flex items-center justify-end gap-1.5">
         <span className="text-[11px] font-semibold text-warm-gray">Less</span>
         {levelColors.map((c, i) => (
@@ -74,6 +153,7 @@ export default function JournalPage() {
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<SessionStats | null>(null);
+  const [sessions, setSessions] = useState<{ started_at: string; rows_added: number }[]>([]);
 
   useEffect(() => {
     async function load() {
@@ -213,6 +293,8 @@ export default function JournalPage() {
         journalEntries,
       });
 
+      setSessions(sessionList.map((s) => ({ started_at: s.started_at, rows_added: s.rows_added || 0 })));
+
       setLoading(false);
     }
     load();
@@ -312,7 +394,7 @@ export default function JournalPage() {
         </div>
 
         {/* Heatmap */}
-        <Heatmap />
+        <Heatmap sessions={sessions} />
 
         {/* Two column: Weekly + Time */}
         <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
