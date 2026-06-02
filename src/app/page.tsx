@@ -62,12 +62,13 @@ export default function Home() {
         .eq("id", user.id)
         .single();
 
-      if (!profileData || !profileData.onboarding_completed) {
-        router.push("/onboarding");
-        return;
+      // If profile doesn't exist or onboarding incomplete, show default dashboard
+      // (don't loop back to onboarding — let user explore freely)
+      if (!profileData) {
+        setProfile({ experience_level: "casual", craft_preference: [], onboarding_completed: false });
+      } else {
+        setProfile(profileData);
       }
-
-      setProfile(profileData);
 
       const { data } = await supabase
         .from("projects")
