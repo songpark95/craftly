@@ -1,61 +1,200 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { JournalSkeleton } from "@/components/Skeleton";
 import { createClient } from "@/lib/supabase/client";
 
-interface SessionStats {
-  finished: number;
-  totalTimeSeconds: number;
-  totalRows: number;
-  skeinsUsed: number;
-  streak: number;
-  bestStreak: number;
-  weeklyRows: number[];
-  timePerProject: { name: string; color: string; hours: number; pct: number }[];
-  yarnUsage: { name: string; color: string; skeins: number; pct: number }[];
-  journalEntries: {
-    day: number;
-    month: string;
-    project: string;
-    projectColor: string;
-    note: string;
-    rows: number;
-    time: string;
-    emoji: string;
-  }[];
+/* ─── Types ─── */
+
+type Period = "week" | "month" | "year" | "all";
+
+interface RawSession {
+  id: string;
+  project_id: string;
+  started_at: string;
+  duration_seconds: number | null;
+  rows_added: number | null;
+  notes: string | null;
+  projects: { name: string; yarn_color: string | null } | null;
 }
 
-const EMOJIS = ["🧣", "🧢", "🧸", "🧤", "🧵", "🎀", "🪢", "🧶"];
+interface RawProject {
+  id: string;
+  name: string;
+  status: string | null;
+  current_row: number | null;
+  yarn_color: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+interface Achievement {
+  id: string;
+  emoji: string;
+  name: string;
+  description: string;
+  category: string;
+  target: number;
+  getValue: (d: StatsData) => number;
+}
+
+interface StatsData {
+  projects: RawProject[];
+  sessions: RawSession[];
+  allSessions: RawSession[];
+}
+
+/* ─── Achievements Definitions ─── */
+
+const ACHIEVEMENTS: Achievement[] = [
+  // Getting Started
+  { id: "first-project", emoji: "🌱", name: "Seed Planted", description: "Start your first project", category: "Getting Started", target: 1, getValue: (d) => d.projects.length },
+  { id: "first-session", emoji: "⏱️", name: "First Stitch", description: "Log your first session", category: "Getting Started", target: 1, getValue: (d) => d.allSessions.length },
+  { id: "first-finish", emoji: "🏁", name: "Finished Object", description: "Complete your first project", category: "Getting Started", target: 1, getValue: (d) => d.projects.filter((p) => p.status === "done").length },
+
+  // Crafting Volume
+  { id: "rows-100", emoji: "📏", name: "Century", description: "Log 100 total rows", category: "Crafting", target: 100, getValue: (d) => d.allSessions.reduce((s, sess) => s + (sess.rows_added || 0), 0) },
+  { id: "rows-500", emoji: "📐", name: "Half Grand", description: "Log 500 total rows", category: "Crafting", target: 500, getValue: (d) => d.allSessions.reduce((s, sess) => s + (sess.rows_added || 0), 0) },
+  { id: "rows-1000", emoji: "🏔️", name: "Kilometer", description: "Log 1,000 total rows", category: "Crafting", target: 1000, getValue: (d) => d.allSessions.reduce((s, sess) => s + (sess.rows_added || 0), 0) },
+  { id: "rows-5000", emoji: "🌋", name: "Marathon Crafter", description: "Log 5,000 total rows", category: "Crafting", target: 5000, getValue: (d) => d.allSessions.reduce((s, sess) => s + (sess.rows_added || 0), 0) },
+
+  // Streaks
+  { id: "streak-3", emoji: "🔥", name: "Getting Warm", description: "3-day crafting streak", category: "Streaks", target: 3, getValue: (d) => calcBestStreak(d.allSessions) },
+  { id: "streak-7", emoji: "🔥🔥", name: "Week Warrior", description: "7-day crafting streak", category: "Streaks", target: 7, getValue: (d) => calcBestStreak(d.allSessions) },
+  { id: "streak-30", emoji: "🔥🔥🔥", name: "Monthly Master", description: "30-day crafting streak", category: "Streaks", target: 30, getValue: (d) => calcBestStreak(d.allSessions) },
+  { id: "streak-100", emoji: "💎", name: "Diamond Hands", description: "100-day crafting streak", category: "Streaks", target: 100, getValue: (d) => calcBestStreak(d.allSessions) },
+
+  // Time
+  { id: "time-1h", emoji: "⏰", name: "Hour of Craft", description: "Spend 1 hour crafting", category: "Time", target: 3600, getValue: (d) => d.allSessions.reduce((s, sess) => s + (sess.duration_seconds || 0), 0) },
+  { id: "time-10h", emoji: "⏳", name: "Dedicated", description: "Spend 10 hours crafting", category: "Time", target: 36000, getValue: (d) => d.allSessions.reduce((s, sess) => s + (sess.duration_seconds || 0), 0) },
+  { id: "time-100h", emoji: "🕰️", name: "Craft Veteran", description: "Spend 100 hours crafting", category: "Time", target: 360000, getValue: (d) => d.allSessions.reduce((s, sess) => s + (sess.duration_seconds || 0), 0) },
+
+  // Collection
+  { id: "projects-3", emoji: "📚", name: "Multi-Crafter", description: "Have 3 projects", category: "Collection", target: 3, getValue: (d) => d.projects.length },
+  { id: "projects-5", emoji: "📖", name: "Project Collector", description: "Have 5 projects", category: "Collection", target: 5, getValue: (d) => d.projects.length },
+  { id: "finishes-3", emoji: "🏆", name: "Triple Crown", description: "Finish 3 projects", category: "Collection", target: 3, getValue: (d) => d.projects.filter((p) => p.status === "done").length },
+
+  // Session volume
+  { id: "sessions-10", emoji: "📝", name: "Regular", description: "Log 10 sessions", category: "Crafting", target: 10, getValue: (d) => d.allSessions.length },
+  { id: "sessions-50", emoji: "📋", name: "Habitual", description: "Log 50 sessions", category: "Crafting", target: 50, getValue: (d) => d.allSessions.length },
+  { id: "sessions-100", emoji: "📚", name: "Centurion", description: "Log 100 sessions", category: "Crafting", target: 100, getValue: (d) => d.allSessions.length },
+
+  // Special
+  { id: "big-session", emoji: "💪", name: "Power Hour", description: "50+ rows in one session", category: "Special", target: 50, getValue: (d) => Math.max(0, ...d.allSessions.map((s) => s.rows_added || 0)) },
+  { id: "night-owl", emoji: "🦉", name: "Night Owl", description: "Log a session after 10 PM", category: "Special", target: 1, getValue: (d) => d.allSessions.filter((s) => new Date(s.started_at).getHours() >= 22).length },
+  { id: "early-bird", emoji: "🐦", name: "Early Bird", description: "Log a session before 8 AM", category: "Special", target: 1, getValue: (d) => d.allSessions.filter((s) => new Date(s.started_at).getHours() < 8).length },
+];
+
+/* ─── Helpers ─── */
+
+function calcBestStreak(sessions: RawSession[]): number {
+  const dates = new Set(sessions.map((s) => new Date(s.started_at).toISOString().split("T")[0]));
+  let best = 0;
+  let current = 0;
+  const today = new Date();
+  for (let i = 0; i < 3650; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().split("T")[0];
+    if (dates.has(key)) {
+      current++;
+      best = Math.max(best, current);
+    } else {
+      current = 0;
+    }
+  }
+  return best;
+}
+
+function periodCutoff(period: Period): Date | null {
+  if (period === "all") return null;
+  const now = new Date();
+  if (period === "week") now.setDate(now.getDate() - 7);
+  else if (period === "month") now.setDate(now.getDate() - 30);
+  else if (period === "year") now.setFullYear(now.getFullYear() - 1);
+  return now;
+}
+
+function formatTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+/* ─── Components ─── */
+
+function StatCard({ emoji, value, label, sub }: { emoji: string; value: string; label: string; sub?: string }) {
+  return (
+    <div className="rounded-2xl bg-white p-5 text-center shadow-soft border border-warm-wood-pale transition-all hover:-translate-y-0.5 hover:shadow-lifted">
+      <div className="mb-2 text-2xl">{emoji}</div>
+      <div className="font-serif text-3xl font-semibold leading-none mb-1">{value}</div>
+      <div className="text-[10px] font-extrabold uppercase tracking-wider text-warm-gray mb-1">{label}</div>
+      {sub && <div className="text-[11px] font-bold text-sage">{sub}</div>}
+    </div>
+  );
+}
+
+function AchievementCard({ achievement, value }: { achievement: Achievement; value: number }) {
+  const unlocked = value >= achievement.target;
+  const progress = Math.min(1, value / achievement.target);
+  const pct = Math.round(progress * 100);
+
+  return (
+    <div
+      className={`relative rounded-2xl p-5 transition-all ${
+        unlocked
+          ? "bg-white shadow-soft border border-sage/30 hover:-translate-y-0.5 hover:shadow-lifted"
+          : "bg-warm-bg border border-warm-wood-pale/50 opacity-70"
+      }`}
+    >
+      {unlocked && (
+        <div className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-sage flex items-center justify-center">
+          <span className="text-[10px] text-white font-bold">✓</span>
+        </div>
+      )}
+      <div className="mb-2 text-2xl">{achievement.emoji}</div>
+      <div className={`font-serif text-sm font-semibold leading-tight mb-0.5 ${unlocked ? "text-warm-dark" : "text-warm-gray"}`}>
+        {achievement.name}
+      </div>
+      <p className="text-[11px] font-semibold text-warm-gray mb-3 leading-snug">{achievement.description}</p>
+      {!unlocked && (
+        <div className="h-1.5 w-full rounded-full bg-warm-wood-pale overflow-hidden">
+          <div className="h-full rounded-full bg-sage/60 transition-all" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      {!unlocked && (
+        <div className="mt-1 text-[10px] font-bold text-warm-gray text-right">
+          {achievement.target >= 3600 ? `${Math.floor(value / 3600)}h / ${Math.floor(achievement.target / 3600)}h` : `${value} / ${achievement.target}`}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Heatmap({ sessions }: { sessions: { started_at: string; rows_added: number }[] }) {
   const levelColors = ["#F0E6D6", "#C8DFCA", "#8FBF9A", "#6B9E7A", "#4A7C59"];
 
-  // Build date → rows map from sessions
   const dateRows = new Map<string, number>();
   for (const s of sessions) {
     const dateStr = new Date(s.started_at).toISOString().split("T")[0];
     dateRows.set(dateStr, (dateRows.get(dateStr) || 0) + (s.rows_added || 0));
   }
 
-  // Find max rows for scaling
   const allRows = Array.from(dateRows.values());
   const maxRows = Math.max(1, ...allRows);
 
-  // Build 26 weeks × 7 days grid (Sun–Sat), ending today
   const today = new Date();
-  const grid: { date: Date; dateStr: string; rows: number; level: number }[][] = [];
-  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const endDate = new Date(today);
+  const endDay = endDate.getDay();
+  const startDate = new Date(endDate);
+  startDate.setDate(startDate.getDate() - endDay - 25 * 7);
+
   const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-  // Find the start: 26 weeks back from the most recent Sunday
-  const endDate = new Date(today);
-  const endDay = endDate.getDay(); // 0=Sun
-  const startDate = new Date(endDate);
-  startDate.setDate(startDate.getDate() - endDay - (25 * 7)); // 26 weeks total
-
+  const grid: { date: Date; dateStr: string; rows: number; level: number }[][] = [];
   for (let week = 0; week < 26; week++) {
     const weekDays: { date: Date; dateStr: string; rows: number; level: number }[] = [];
     for (let day = 0; day < 7; day++) {
@@ -63,7 +202,6 @@ function Heatmap({ sessions }: { sessions: { started_at: string; rows_added: num
       d.setDate(d.getDate() + week * 7 + day);
       const dateStr = d.toISOString().split("T")[0];
       const rows = dateRows.get(dateStr) || 0;
-      // Don't show future dates
       const isFuture = d > today;
       let level = 0;
       if (!isFuture && rows > 0) {
@@ -78,12 +216,10 @@ function Heatmap({ sessions }: { sessions: { started_at: string; rows_added: num
     grid.push(weekDays);
   }
 
-  // Find month label positions (first week where the month changes)
   const monthPositions: { label: string; week: number }[] = [];
   let lastMonth = -1;
   for (let week = 0; week < grid.length; week++) {
-    const firstDay = grid[week][0];
-    const m = firstDay.date.getMonth();
+    const m = grid[week][0].date.getMonth();
     if (m !== lastMonth) {
       monthPositions.push({ label: monthLabels[m], week });
       lastMonth = m;
@@ -100,8 +236,6 @@ function Heatmap({ sessions }: { sessions: { started_at: string; rows_added: num
             : "Start logging sessions to see your activity here"}
         </p>
       </div>
-
-      {/* Month labels */}
       <div className="flex gap-1 mb-1 ml-6">
         {monthPositions.map((mp, i) => {
           const nextWeek = i < monthPositions.length - 1 ? monthPositions[i + 1].week : 26;
@@ -113,7 +247,6 @@ function Heatmap({ sessions }: { sessions: { started_at: string; rows_added: num
           );
         })}
       </div>
-
       <div className="flex gap-0.5 overflow-x-auto pb-2">
         {grid.map((week, wi) => (
           <div key={wi} className="flex flex-col gap-0.5">
@@ -123,20 +256,15 @@ function Heatmap({ sessions }: { sessions: { started_at: string; rows_added: num
                 className={`h-3.5 w-3.5 rounded-[3px] transition-transform hover:scale-150 ${
                   cell.level === -1 ? "opacity-0 cursor-default" : "cursor-pointer"
                 }`}
-                style={{
-                  background: cell.level >= 0 ? levelColors[cell.level] : "transparent",
-                }}
+                style={{ background: cell.level >= 0 ? levelColors[cell.level] : "transparent" }}
                 title={
-                  cell.level >= 0
-                    ? `${monthLabels[cell.date.getMonth()]} ${cell.date.getDate()}: ${cell.rows} rows`
-                    : ""
+                  cell.level >= 0 ? `${monthLabels[cell.date.getMonth()]} ${cell.date.getDate()}: ${cell.rows} rows` : ""
                 }
               />
             ))}
           </div>
         ))}
       </div>
-
       <div className="mt-3 flex items-center justify-end gap-1.5">
         <span className="text-[11px] font-semibold text-warm-gray">Less</span>
         {levelColors.map((c, i) => (
@@ -148,157 +276,145 @@ function Heatmap({ sessions }: { sessions: { started_at: string; rows_added: num
   );
 }
 
+/* ─── Main Page ─── */
+
+const EMOJIS = ["🧣", "🧢", "🧸", "🧤", "🧵", "🎀", "🪢", "🧶"];
+
 export default function JournalPage() {
   const router = useRouter();
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<SessionStats | null>(null);
-  const [sessions, setSessions] = useState<{ started_at: string; rows_added: number }[]>([]);
+  const [period, setPeriod] = useState<Period>("all");
+  const [projects, setProjects] = useState<RawProject[]>([]);
+  const [allSessions, setAllSessions] = useState<RawSession[]>([]);
+  const [showAchievements, setShowAchievements] = useState(false);
 
   useEffect(() => {
     async function load() {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
       if (authError || !user) {
         router.push("/login");
         return;
       }
 
-      // Fetch all projects for this user
-      const { data: projects } = await supabase
-        .from("projects")
-        .select("*")
-        .eq("user_id", user.id);
-
-      // Fetch all sessions for this user
-      const { data: sessions } = await supabase
+      const { data: projectData } = await supabase.from("projects").select("*").eq("user_id", user.id);
+      const { data: sessionData } = await supabase
         .from("sessions")
         .select("*, projects!inner(name, yarn_color)")
         .eq("user_id", user.id)
         .order("started_at", { ascending: false });
 
-      // Fetch all yarn
-      const { data: yarn } = await supabase
-        .from("yarn")
-        .select("*")
-        .eq("user_id", user.id);
-
-      const projectList = projects || [];
-      const sessionList = sessions || [];
-      const yarnList = yarn || [];
-
-      // Stats computed from real data
-      const finished = projectList.filter((p) => p.status === "done").length;
-      const totalTimeSeconds = sessionList.reduce((s, sess) => s + (sess.duration_seconds || 0), 0);
-      const totalRows = projectList.reduce((s, p) => s + (p.current_row || 0), 0);
-      const skeinsUsed = 0;
-
-      // Streak from sessions
-      const sessionDates = sessionList
-        .map((s) => new Date(s.started_at).toISOString().split("T")[0])
-        .filter((v, i, a) => a.indexOf(v) === i) // unique dates
-        .sort()
-        .reverse();
-
-      let streak = 0;
-      let bestStreak = 0;
-      const today = new Date().toISOString().split("T")[0];
-      let checkDate = today;
-
-      // Count consecutive days with sessions
-      for (let i = 0; i < 365; i++) {
-        const dateStr = new Date(Date.now() - i * 86400000).toISOString().split("T")[0];
-        if (sessionDates.includes(dateStr)) {
-          streak++;
-        } else if (i > 0) {
-          break;
-        }
-      }
-      bestStreak = streak;
-
-      // Weekly rows (last 7 days)
-      const weeklyRows = Array.from({ length: 7 }, (_, i) => {
-        const dateStr = new Date(Date.now() - (6 - i) * 86400000).toISOString().split("T")[0];
-        const daySessions = sessionList.filter(
-          (s) => new Date(s.started_at).toISOString().split("T")[0] === dateStr
-        );
-        return daySessions.reduce((sum, s) => sum + (s.rows_added || 0), 0);
-      });
-
-      // Time per project
-      const projectTimeMap = new Map<string, { name: string; color: string; seconds: number }>();
-      for (const sess of sessionList) {
-        const proj = sess.projects as unknown as { name: string; yarn_color: string | null };
-        if (!proj) continue;
-        const existing = projectTimeMap.get(sess.project_id);
-        if (existing) {
-          existing.seconds += sess.duration_seconds || 0;
-        } else {
-          projectTimeMap.set(sess.project_id, {
-            name: proj.name,
-            color: proj.yarn_color || "#6B9E7A",
-            seconds: sess.duration_seconds || 0,
-          });
-        }
-      }
-
-      const totalHours = totalTimeSeconds / 3600;
-      const timePerProject = Array.from(projectTimeMap.values())
-        .map((p) => ({
-          name: p.name,
-          color: p.color,
-          hours: Math.round((p.seconds / 3600) * 10) / 10,
-          pct: totalHours > 0 ? Math.round((p.seconds / totalTimeSeconds) * 100) : 0,
-        }))
-        .sort((a, b) => b.hours - a.hours);
-
-      // Yarn usage (simplified: show all yarn)
-      const totalYarnQty = yarnList.reduce((s, y) => s + (y.quantity || 0), 0);
-      const yarnUsage = yarnList.map((y) => ({
-        name: y.name,
-        color: y.color_hex || "#6B9E7A",
-        skeins: y.quantity || 0,
-        pct: totalYarnQty > 0 ? Math.round(((y.quantity || 0) / totalYarnQty) * 100) : 0,
-      }));
-
-      // Journal entries from sessions
-      const journalEntries = sessionList.slice(0, 10).map((sess, idx) => {
-        const proj = sess.projects as unknown as { name: string; yarn_color: string | null };
-        const d = new Date(sess.started_at);
-        const totalS = sess.duration_seconds || 0;
-        const h = Math.floor(totalS / 3600);
-        const m = Math.floor((totalS % 3600) / 60);
-        const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
-        return {
-          day: d.getDate(),
-          month: d.toLocaleDateString("en-US", { month: "short" }),
-          project: proj?.name || "Unknown",
-          projectColor: proj?.yarn_color || "#6B9E7A",
-          note: sess.notes || "Crafting session logged",
-          rows: sess.rows_added || 0,
-          time: timeStr,
-          emoji: EMOJIS[idx % EMOJIS.length],
-        };
-      });
-
-      setStats({
-        finished,
-        totalTimeSeconds,
-        totalRows,
-        skeinsUsed,
-        streak,
-        bestStreak,
-        weeklyRows,
-        timePerProject,
-        yarnUsage,
-        journalEntries,
-      });
-
-      setSessions(sessionList.map((s) => ({ started_at: s.started_at, rows_added: s.rows_added || 0 })));
-
+      setProjects(projectData || []);
+      setAllSessions((sessionData as unknown as RawSession[]) || []);
       setLoading(false);
     }
     load();
   }, []);
+
+  // Filter sessions by period
+  const sessions = useMemo(() => {
+    const cutoff = periodCutoff(period);
+    if (!cutoff) return allSessions;
+    return allSessions.filter((s) => new Date(s.started_at) >= cutoff);
+  }, [allSessions, period]);
+
+  // Compute stats
+  const stats = useMemo(() => {
+    const finished = projects.filter((p) => p.status === "done").length;
+    const totalTimeSeconds = sessions.reduce((s, sess) => s + (sess.duration_seconds || 0), 0);
+    const totalRows = projects.reduce((s, p) => s + (p.current_row || 0), 0);
+
+    // Streak
+    const sessionDates = allSessions
+      .map((s) => new Date(s.started_at).toISOString().split("T")[0])
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .sort()
+      .reverse();
+
+    let streak = 0;
+    for (let i = 0; i < 365; i++) {
+      const dateStr = new Date(Date.now() - i * 86400000).toISOString().split("T")[0];
+      if (sessionDates.includes(dateStr)) streak++;
+      else if (i > 0) break;
+    }
+    const bestStreak = calcBestStreak(allSessions);
+
+    // Weekly rows (always last 7 days regardless of period)
+    const weeklyRows = Array.from({ length: 7 }, (_, i) => {
+      const dateStr = new Date(Date.now() - (6 - i) * 86400000).toISOString().split("T")[0];
+      const daySessions = allSessions.filter(
+        (s) => new Date(s.started_at).toISOString().split("T")[0] === dateStr
+      );
+      return daySessions.reduce((sum, s) => sum + (s.rows_added || 0), 0);
+    });
+
+    // Time per project (filtered by period)
+    const projectTimeMap = new Map<string, { name: string; color: string; seconds: number }>();
+    for (const sess of sessions) {
+      const proj = sess.projects;
+      if (!proj) continue;
+      const existing = projectTimeMap.get(sess.project_id);
+      if (existing) {
+        existing.seconds += sess.duration_seconds || 0;
+      } else {
+        projectTimeMap.set(sess.project_id, {
+          name: proj.name,
+          color: proj.yarn_color || "#6B9E7A",
+          seconds: sess.duration_seconds || 0,
+        });
+      }
+    }
+    const totalHours = totalTimeSeconds / 3600;
+    const timePerProject = Array.from(projectTimeMap.values())
+      .map((p) => ({
+        name: p.name,
+        color: p.color,
+        hours: Math.round((p.seconds / 3600) * 10) / 10,
+        pct: totalHours > 0 ? Math.round((p.seconds / totalTimeSeconds) * 100) : 0,
+      }))
+      .sort((a, b) => b.hours - a.hours);
+
+    // Journal entries from filtered sessions
+    const journalEntries = sessions.slice(0, 20).map((sess, idx) => {
+      const proj = sess.projects;
+      const d = new Date(sess.started_at);
+      const totalS = sess.duration_seconds || 0;
+      const h = Math.floor(totalS / 3600);
+      const m = Math.floor((totalS % 3600) / 60);
+      const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+      return {
+        day: d.getDate(),
+        month: d.toLocaleDateString("en-US", { month: "short" }),
+        project: proj?.name || "Unknown",
+        projectColor: proj?.yarn_color || "#6B9E7A",
+        note: sess.notes || "Crafting session logged",
+        rows: sess.rows_added || 0,
+        time: timeStr,
+        emoji: EMOJIS[idx % EMOJIS.length],
+      };
+    });
+
+    return {
+      finished,
+      totalTimeSeconds,
+      totalRows,
+      streak,
+      bestStreak,
+      weeklyRows,
+      timePerProject,
+      journalEntries,
+    };
+  }, [projects, sessions, allSessions]);
+
+  // Achievement values (always based on ALL data, not period-filtered)
+  const achievementData: StatsData = { projects, sessions, allSessions };
+  const achievementValues = useMemo(() => {
+    return ACHIEVEMENTS.map((a) => ({ achievement: a, value: a.getValue(achievementData) }));
+  }, [projects, allSessions]);
+  const unlockedCount = achievementValues.filter(({ achievement, value }) => value >= achievement.target).length;
 
   if (loading) {
     return (
@@ -317,32 +433,38 @@ export default function JournalPage() {
     );
   }
 
-  if (!stats) return null;
-
   const totalHours = Math.round(stats.totalTimeSeconds / 3600);
   const maxRow = Math.max(...stats.weeklyRows, 1);
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  // Group achievements by category
+  const achievementGroups = new Map<string, { achievement: Achievement; value: number }[]>();
+  for (const av of achievementValues) {
+    const cat = av.achievement.category;
+    if (!achievementGroups.has(cat)) achievementGroups.set(cat, []);
+    achievementGroups.get(cat)!.push(av);
+  }
 
   return (
     <>
       <Nav />
       <main className="relative z-10 mx-auto max-w-6xl px-6 py-8">
-        <div className="mb-6 flex items-end justify-between">
+        {/* Header */}
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="font-serif text-2xl">📊 Stats & Journal</h1>
-            <p className="text-sm font-semibold text-warm-gray">
-              Your crafting story
-            </p>
+            <p className="text-sm font-semibold text-warm-gray">Your crafting story</p>
           </div>
           <div className="flex gap-1 rounded-xl bg-warm-bg p-1">
-            {["Week", "Month", "Year", "All Time"].map((p, i) => (
+            {(["week", "month", "year", "all"] as const).map((p) => (
               <button
                 key={p}
-                className={`rounded-lg px-3 py-2 text-[12px] font-bold transition-colors ${
-                  i === 1 ? "bg-sage text-white" : "text-warm-gray hover:text-warm-dark"
+                onClick={() => setPeriod(p)}
+                className={`rounded-lg px-3 py-2 text-[12px] font-bold transition-colors capitalize ${
+                  period === p ? "bg-sage text-white" : "text-warm-gray hover:text-warm-dark"
                 }`}
               >
-                {p}
+                {p === "all" ? "All Time" : p}
               </button>
             ))}
           </div>
@@ -351,50 +473,55 @@ export default function JournalPage() {
         {/* Hero Stats */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <StatCard emoji="🧶" value={String(stats.finished)} label="Finished" />
-          <StatCard emoji="⏱️" value={`${totalHours}h`} label="Time Spent" />
+          <StatCard emoji="⏱️" value={totalHours > 0 ? `${totalHours}h` : "0m"} label="Time Spent" />
           <StatCard emoji="📏" value={String(stats.totalRows)} label="Total Rows" />
-          <StatCard emoji="🧵" value={String(stats.yarnUsage.reduce((s, y) => s + y.skeins, 0))} label="Skeins" />
+          <StatCard emoji="🧵" value={String(sessions.length)} label="Sessions" />
           <StatCard emoji="🔥" value={String(stats.streak)} label="Day Streak" sub={`Best: ${stats.bestStreak} days`} />
         </div>
 
-        {/* Streak Banner */}
-        <div className="mb-6 flex items-center justify-between rounded-2xl bg-gradient-to-r from-sage-deep to-sage p-8 text-white">
-          <div>
-            <div className="text-[11px] font-extrabold uppercase tracking-widest opacity-80">
-              Current Streak
-            </div>
-            <div className="font-serif text-5xl leading-none mt-1">
-              {stats.streak} days 🔥
-            </div>
-            <div className="mt-1 text-sm font-semibold opacity-90">
-              {stats.bestStreak > 0
-                ? `Your best was ${stats.bestStreak} days — keep going!`
-                : "Start a streak by logging a session!"}
+        {/* Achievements Toggle */}
+        <button
+          onClick={() => setShowAchievements(!showAchievements)}
+          className="w-full mb-6 rounded-2xl bg-white p-4 shadow-soft border border-warm-wood-pale flex items-center justify-between transition-all hover:shadow-lifted"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-xl">🏆</span>
+            <div className="text-left">
+              <div className="font-serif text-sm font-semibold">Achievements</div>
+              <div className="text-[12px] font-semibold text-warm-gray">
+                {unlockedCount} of {ACHIEVEMENTS.length} unlocked
+              </div>
             </div>
           </div>
-          <div className="grid grid-cols-7 gap-1.5">
-            {Array.from({ length: 14 }, (_, i) => {
-              const d = new Date(Date.now() - (13 - i) * 86400000);
-              return (
-                <div
-                  key={i}
-                  className={`flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-bold ${
-                    i < stats.streak
-                      ? "bg-white text-sage-deep"
-                      : i === stats.streak
-                      ? "bg-white text-sage-deep ring-2 ring-white/50"
-                      : "bg-white/20"
-                  }`}
-                >
-                  {d.getDate()}
+          <div className="flex items-center gap-3">
+            <div className="h-2 w-32 rounded-full bg-warm-bg overflow-hidden">
+              <div
+                className="h-full rounded-full bg-sage transition-all"
+                style={{ width: `${(unlockedCount / ACHIEVEMENTS.length) * 100}%` }}
+              />
+            </div>
+            <span className={`text-warm-gray transition-transform ${showAchievements ? "rotate-180" : ""}`}>▾</span>
+          </div>
+        </button>
+
+        {/* Achievements Grid */}
+        {showAchievements && (
+          <div className="mb-6 space-y-6">
+            {Array.from(achievementGroups.entries()).map(([category, items]) => (
+              <div key={category}>
+                <h3 className="font-serif text-sm font-semibold text-warm-gray mb-3 uppercase tracking-wider">{category}</h3>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {items.map(({ achievement, value }) => (
+                    <AchievementCard key={achievement.id} achievement={achievement} value={value} />
+                  ))}
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
-        </div>
+        )}
 
         {/* Heatmap */}
-        <Heatmap sessions={sessions} />
+        <Heatmap sessions={allSessions.map((s) => ({ started_at: s.started_at, rows_added: s.rows_added || 0 }))} />
 
         {/* Two column: Weekly + Time */}
         <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -416,11 +543,7 @@ export default function JournalPage() {
                     style={{
                       height: `${(v / maxRow) * 100}%`,
                       background:
-                        v === maxRow && v > 0
-                          ? "var(--sage-deep)"
-                          : v > 15
-                          ? "var(--sage)"
-                          : "var(--sage-light)",
+                        v === maxRow && v > 0 ? "var(--sage-deep)" : v > 15 ? "var(--sage)" : "var(--sage-light)",
                       minHeight: 4,
                     }}
                   />
@@ -451,17 +574,14 @@ export default function JournalPage() {
                 stats.timePerProject.map((p) => (
                   <div key={p.name} className="flex items-center gap-3">
                     <div className="flex items-center gap-2 min-w-0 flex-shrink-0 w-24 sm:w-32 lg:w-40">
-                      <div
-                        className="h-2.5 w-2.5 rounded-full flex-shrink-0"
-                        style={{ background: p.color }}
-                      />
+                      <div className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: p.color }} />
                       <span className="text-[13px] font-bold truncate">{p.name}</span>
                     </div>
                     <div className="flex-1 h-5 rounded-full bg-warm-bg overflow-hidden">
                       <div
                         className="h-full rounded-full flex items-center pl-2.5"
                         style={{
-                          width: `${p.pct}%`,
+                          width: `${Math.max(p.pct, 10)}%`,
                           background: `linear-gradient(90deg, ${p.color}, ${p.color}cc)`,
                           minWidth: 36,
                         }}
@@ -477,108 +597,66 @@ export default function JournalPage() {
           </div>
         </div>
 
-        {/* Yarn Usage Donut */}
-        {stats.yarnUsage.length > 0 && (
-          <div className="mb-6 rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
-            <div className="mb-4">
-              <h2 className="font-serif text-lg">Yarn Stash</h2>
-              <p className="text-[13px] font-semibold text-warm-gray">
-                {stats.yarnUsage.reduce((s, y) => s + y.skeins, 0)} skeins across{" "}
-                {stats.yarnUsage.length} colors
-              </p>
-            </div>
-            <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center">
-              {/* Donut */}
-              <div className="relative h-44 w-44 flex-shrink-0">
-                <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
-                  {stats.yarnUsage.reduce<{ offset: number; elements: React.ReactElement[] }>(
-                    (acc, yarn, i) => {
-                      const circumference = 2 * Math.PI * 36;
-                      const segmentLength = (yarn.pct / 100) * circumference;
-                      const el = (
-                        <circle
-                          key={i}
-                          cx="50"
-                          cy="50"
-                          r="36"
-                          fill="none"
-                          stroke={yarn.color}
-                          strokeWidth="28"
-                          strokeDasharray={`${segmentLength} ${circumference}`}
-                          strokeDashoffset={-acc.offset}
-                        />
-                      );
-                      acc.offset += segmentLength;
-                      acc.elements.push(el);
-                      return acc;
-                    },
-                    { offset: 0, elements: [] }
-                  ).elements}
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="font-serif text-3xl font-semibold">
-                    {stats.yarnUsage.reduce((s, y) => s + y.skeins, 0)}
-                  </span>
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-warm-gray">
-                    Skeins
-                  </span>
-                </div>
+        {/* Yarn Stash */}
+        {(() => {
+          const yarnUsage = allSessions.length > 0 ? (() => {
+            // Derive yarn usage from projects
+            const yarnMap = new Map<string, { name: string; color: string; count: number }>();
+            for (const p of projects) {
+              const existing = yarnMap.get(p.id);
+              if (existing) existing.count++;
+              else yarnMap.set(p.id, { name: p.name, color: p.yarn_color || "#6B9E7A", count: 1 });
+            }
+            return Array.from(yarnMap.values());
+          })() : [];
+          return yarnUsage.length > 0 ? (
+            <div className="mb-6 rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
+              <div className="mb-4">
+                <h2 className="font-serif text-lg">Yarn Stash</h2>
+                <p className="text-[13px] font-semibold text-warm-gray">{yarnUsage.length} colors in rotation</p>
               </div>
-
-              {/* Legend */}
-              <div className="flex-1 space-y-2">
-                {stats.yarnUsage.map((y) => (
-                  <div
-                    key={y.name}
-                    className="flex items-center gap-3 border-b border-warm-bg py-2 last:border-0"
-                  >
-                    <div className="h-3.5 w-3.5 rounded flex-shrink-0" style={{ background: y.color }} />
-                    <span className="text-[13px] font-bold flex-1">{y.name}</span>
-                    <span className="text-[13px] font-extrabold">{y.skeins} skeins</span>
-                    <span className="text-[12px] font-semibold text-warm-gray w-10 text-right">
-                      {y.pct}%
-                    </span>
+              <div className="flex flex-wrap gap-3">
+                {yarnUsage.map((y) => (
+                  <div key={y.name} className="flex items-center gap-2 rounded-xl bg-warm-bg px-3 py-2">
+                    <div className="h-3.5 w-3.5 rounded-full" style={{ background: y.color }} />
+                    <span className="text-[13px] font-bold">{y.name}</span>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
-        )}
+          ) : null;
+        })()}
 
         {/* Journal Entries */}
         <div className="rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
           <div className="mb-4">
             <h2 className="font-serif text-lg">📝 Journal</h2>
             <p className="text-[13px] font-semibold text-warm-gray">
-              Auto-logged from your crafting sessions
+              {period === "all" ? "All time" : `Last ${period === "week" ? "7 days" : period === "month" ? "30 days" : "year"}`} ·{" "}
+              {sessions.length} sessions
             </p>
           </div>
           <div className="space-y-0">
             {stats.journalEntries.length === 0 ? (
-              <p className="text-[13px] text-warm-gray py-4">No sessions logged yet</p>
+              <p className="text-[13px] text-warm-gray py-4">
+                {period === "all" ? "No sessions logged yet" : "No sessions in this period — try expanding the range"}
+              </p>
             ) : (
               stats.journalEntries.map((entry, i) => (
                 <div key={i} className="flex gap-4 border-b border-warm-bg py-4 last:border-0">
                   <div className="flex-shrink-0 w-14 text-center">
                     <div className="font-serif text-2xl font-semibold leading-none">{entry.day}</div>
-                    <div className="text-[10px] font-extrabold uppercase text-warm-gray">
-                      {entry.month}
-                    </div>
+                    <div className="text-[10px] font-extrabold uppercase text-warm-gray">{entry.month}</div>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <div
-                        className="h-2 w-2 rounded-full flex-shrink-0"
-                        style={{ background: entry.projectColor }}
-                      />
+                      <div className="h-2 w-2 rounded-full flex-shrink-0" style={{ background: entry.projectColor }} />
                       <span className="text-[14px] font-extrabold">{entry.project}</span>
                     </div>
                     <p className="text-[13px] text-warm-gray mb-2 leading-relaxed">{entry.note}</p>
                     <div className="flex gap-4">
                       {entry.rows > 0 && (
-                        <span className="text-[12px] font-bold text-sage-deep">
-                          📏 +{entry.rows} rows
-                        </span>
+                        <span className="text-[12px] font-bold text-sage-deep">📏 +{entry.rows} rows</span>
                       )}
                       <span className="text-[12px] font-bold text-sage-deep">⏱️ {entry.time}</span>
                     </div>
@@ -593,28 +671,5 @@ export default function JournalPage() {
         </div>
       </main>
     </>
-  );
-}
-
-function StatCard({
-  emoji,
-  value,
-  label,
-  sub,
-}: {
-  emoji: string;
-  value: string;
-  label: string;
-  sub?: string;
-}) {
-  return (
-    <div className="rounded-2xl bg-white p-5 text-center shadow-soft border border-warm-wood-pale transition-all hover:-translate-y-0.5 hover:shadow-lifted">
-      <div className="mb-2 text-2xl">{emoji}</div>
-      <div className="font-serif text-3xl font-semibold leading-none mb-1">{value}</div>
-      <div className="text-[10px] font-extrabold uppercase tracking-wider text-warm-gray mb-1">
-        {label}
-      </div>
-      {sub && <div className="text-[11px] font-bold text-sage">{sub}</div>}
-    </div>
   );
 }
