@@ -19,6 +19,7 @@ import {
   RefreshCw,
   FileText,
 } from "lucide-react";
+import ProjectTodos from "@/components/ProjectTodos";
 
 interface ProjectData {
   id: string;
@@ -34,6 +35,9 @@ interface ProjectData {
   yarn_name: string | null;
   notes: string | null;
   photo_url: string | null;
+  date_started: string | null;
+  deadline_date: string | null;
+  deadline_notes: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -130,6 +134,9 @@ export default function ProjectDetail() {
   const [editGaugeRows, setEditGaugeRows] = useState("");
   const [editGaugeUnit, setEditGaugeUnit] = useState("4in");
   const [editHookSize, setEditHookSize] = useState("");
+  const [editDateStarted, setEditDateStarted] = useState("");
+  const [editDeadlineDate, setEditDeadlineDate] = useState("");
+  const [editDeadlineNotes, setEditDeadlineNotes] = useState("");
 
   const formatSessionDate = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -608,6 +615,9 @@ export default function ProjectDetail() {
     setEditGaugeRows((project as any).gauge_rows?.toString() || "");
     setEditGaugeUnit((project as any).gauge_unit || "4in");
     setEditHookSize((project as any).hook_size || "");
+    setEditDateStarted(project.date_started || "");
+    setEditDeadlineDate(project.deadline_date || "");
+    setEditDeadlineNotes(project.deadline_notes || "");
     setShowEditProject(true);
     setShowSettings(false);
   };
@@ -626,6 +636,9 @@ export default function ProjectDetail() {
         gauge_rows: editGaugeRows ? parseFloat(editGaugeRows) : null,
         gauge_unit: editGaugeUnit || "4in",
         hook_size: editHookSize || null,
+        date_started: editDateStarted || null,
+        deadline_date: editDeadlineDate || null,
+        deadline_notes: editDeadlineNotes || null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", project.id);
@@ -635,6 +648,9 @@ export default function ProjectDetail() {
       total_rows: editTotalRows ? parseInt(editTotalRows) : null,
       yarn_weight: editYarnWeight || null,
       needle_size: editNeedleSize || null,
+      date_started: editDateStarted || null,
+      deadline_date: editDeadlineDate || null,
+      deadline_notes: editDeadlineNotes || null,
     });
     setShowEditProject(false);
     setEditSaving(false);
@@ -873,6 +889,33 @@ export default function ProjectDetail() {
                 </div>
               </div>
             </div>
+
+            {/* Project Dates */}
+            {project.date_started || project.deadline_date ? (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl bg-white px-6 py-3 shadow-soft border border-warm-wood-pale text-sm">
+                {project.date_started && (
+                  <span className="text-warm-gray">
+                    <span className="font-semibold">Started:</span>{" "}
+                    {new Date(project.date_started).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </span>
+                )}
+                {project.deadline_date && (
+                  <span className="text-warm-gray">
+                    <span className="font-semibold">Deadline:</span>{" "}
+                    {new Date(project.deadline_date).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                    {project.deadline_notes && ` (${project.deadline_notes})`}
+                  </span>
+                )}
+              </div>
+            ) : null}
 
             {/* COUNTER TABS + HERO COUNTER */}
             <div
@@ -1133,6 +1176,9 @@ export default function ProjectDetail() {
                 className="min-h-[120px] w-full resize-y rounded-xl border-2 border-warm-wood-pale bg-warm-bg p-4 text-sm leading-relaxed text-warm-dark outline-none transition-colors focus:border-sage"
               />
             </div>
+
+            {/* PROJECT TODOS */}
+            {project && <ProjectTodos projectId={project.id} />}
 
             {/* PATTERN PDF */}
             <div className="rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
@@ -1537,6 +1583,39 @@ export default function ProjectDetail() {
                 />
               </div>
             )}
+
+            {/* Date Started */}
+            <div className="mb-3">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                Date Started
+              </label>
+              <input
+                type="date"
+                value={editDateStarted}
+                onChange={(e) => setEditDateStarted(e.target.value)}
+                className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage"
+              />
+            </div>
+
+            {/* Deadline Date + Notes */}
+            <div className="mb-3">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                Deadline
+              </label>
+              <input
+                type="date"
+                value={editDeadlineDate}
+                onChange={(e) => setEditDeadlineDate(e.target.value)}
+                className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage mb-2"
+              />
+              <input
+                type="text"
+                value={editDeadlineNotes}
+                onChange={(e) => setEditDeadlineNotes(e.target.value)}
+                placeholder="e.g. Birthday gift"
+                className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage"
+              />
+            </div>
 
             <button
               onClick={saveProjectEdit}

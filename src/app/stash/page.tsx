@@ -32,6 +32,7 @@ interface YarnWithAllocation {
   name: string;
   brand: string | null;
   color_hex: string | null;
+  colors: string[] | null;
   weight: string | null;
   fiber: string | null;
   quantity: number;
@@ -40,7 +41,7 @@ interface YarnWithAllocation {
   project_name: string | null;
 }
 
-const WEIGHTS = ["All", "Lace", "Fingering", "Sport", "DK", "Worsted", "Bulky"];
+const WEIGHTS = ["All", "Lace", "Fingering", "Sock", "Sport", "DK", "Worsted", "Bulky", "Super Bulky", "Jumbo"];
 
 export default function StashPage() {
   const router = useRouter();
@@ -74,6 +75,9 @@ export default function StashPage() {
   const [editYarnFiber, setEditYarnFiber] = useState("");
   const [editYarnQuantity, setEditYarnQuantity] = useState(1);
   const [editYarnSaving, setEditYarnSaving] = useState(false);
+  const [editYarnColors, setEditYarnColors] = useState<string[]>([]);
+  const [editNewColor, setEditNewColor] = useState(PRESET_COLORS[0]);
+  const [editShowColorPicker, setEditShowColorPicker] = useState(false);
   const [yarnToDelete, setYarnToDelete] = useState<string | null>(null);
 
   // Photo scan state
@@ -100,6 +104,7 @@ export default function StashPage() {
       const py = y.project_yarn?.[0];
       return {
         id: y.id, name: y.name, brand: y.brand, color_hex: y.color_hex,
+        colors: y.colors || null,
         weight: y.weight, fiber: y.fiber, quantity: y.quantity,
         photo_url: y.photo_url, allocated: !!py, project_name: py?.project?.name || null,
       };
@@ -185,6 +190,7 @@ export default function StashPage() {
       name: yarn.name !== "Unknown" ? yarn.name : yarn.color_name || "Unknown Yarn",
       brand: yarn.brand !== "Unknown" ? yarn.brand : null,
       color_hex: yarn.color_hex || PRESET_COLORS[0],
+      colors: [yarn.color_hex || PRESET_COLORS[0]],
       weight: yarn.weight !== "Unknown" ? yarn.weight.toLowerCase() : null,
       fiber: yarn.fiber !== "Unknown" ? yarn.fiber : null,
       yardage: yarn.yardage_per_skein || null,
@@ -228,6 +234,7 @@ export default function StashPage() {
       name: yarnName.trim(),
       brand: yarnBrand.trim() || null,
       color_hex: yarnColor,
+      colors: [yarnColor],
       weight: yarnWeight || null,
       fiber: yarnFiber.trim() || null,
       quantity: yarnQuantity,
@@ -255,6 +262,7 @@ export default function StashPage() {
         name: y.name,
         brand: y.brand,
         color_hex: y.color_hex,
+        colors: y.colors || null,
         weight: y.weight,
         fiber: y.fiber,
         quantity: y.quantity,
@@ -275,6 +283,7 @@ export default function StashPage() {
     setEditYarnName(y.name);
     setEditYarnBrand(y.brand || "");
     setEditYarnColor(y.color_hex || PRESET_COLORS[0]);
+    setEditYarnColors(y.colors || (y.color_hex ? [y.color_hex] : [PRESET_COLORS[0]]));
     setEditYarnWeight(y.weight || "");
     setEditYarnFiber(y.fiber || "");
     setEditYarnQuantity(y.quantity);
@@ -284,12 +293,14 @@ export default function StashPage() {
   const saveEditYarn = async () => {
     if (!editingYarnId || !editYarnName.trim()) return;
     setEditYarnSaving(true);
+    const validColors = editYarnColors.filter(Boolean);
     await supabase
       .from("yarn")
       .update({
         name: editYarnName.trim(),
         brand: editYarnBrand.trim() || null,
-        color_hex: editYarnColor,
+        color_hex: validColors.length > 0 ? validColors[0] : null,
+        colors: validColors.length > 0 ? validColors : null,
         weight: editYarnWeight || null,
         fiber: editYarnFiber.trim() || null,
         quantity: editYarnQuantity,
@@ -343,6 +354,7 @@ export default function StashPage() {
           name: y.name,
           brand: y.brand,
           color_hex: y.color_hex,
+          colors: y.colors || null,
           weight: y.weight,
           fiber: y.fiber,
           quantity: y.quantity,
@@ -473,18 +485,23 @@ export default function StashPage() {
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map((yarn) => {
-              const color = yarn.color_hex || "#6B9E7A";
               return (
                 <div
                   key={yarn.id}
                   className="relative rounded-2xl bg-white p-4 shadow-soft border border-warm-wood-pale transition-all hover:-translate-y-0.5 hover:shadow-lifted"
                 >
                   <div className="flex items-start gap-3">
-                    {/* Color swatch */}
-                    <div
-                      className="h-12 w-12 flex-shrink-0 rounded-xl"
-                      style={{ background: color }}
-                    />
+                    {/* Color swatches */}
+                    <div className="flex flex-shrink-0 items-center -space-x-1.5">
+                      {(yarn.colors && yarn.colors.length > 0 ? yarn.colors : [yarn.color_hex || "#6B9E7A"]).map((c, i) => (
+                        <div
+                          key={i}
+                          className="h-7 w-7 rounded-full border-2 border-white shadow-sm"
+                          style={{ background: c }}
+                          title={c}
+                        />
+                      ))}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between">
                         <h3 className="text-[14px] font-extrabold truncate">
@@ -671,10 +688,12 @@ export default function StashPage() {
                     <option value="">Any</option>
                     <option value="lace">Lace</option>
                     <option value="fingering">Fingering</option>
+                    <option value="sock">Sock</option>
                     <option value="sport">Sport</option>
                     <option value="dk">DK</option>
                     <option value="worsted">Worsted</option>
                     <option value="bulky">Bulky</option>
+                    <option value="super_bulky">Super Bulky</option>
                     <option value="jumbo">Jumbo</option>
                   </select>
                 </div>
@@ -762,12 +781,68 @@ export default function StashPage() {
               <input type="text" value={editYarnBrand} onChange={(e) => setEditYarnBrand(e.target.value)} className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage" />
             </div>
             <div className="mb-3">
-              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Color</label>
-              <div className="flex flex-wrap gap-2">
-                {PRESET_COLORS.map((c) => (
-                  <button key={c} type="button" onClick={() => setEditYarnColor(c)} className={`h-8 w-8 rounded-lg transition-all ${editYarnColor === c ? "ring-2 ring-offset-2 ring-sage scale-110" : "hover:scale-105"}`} style={{ background: c }} />
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Colors</label>
+              <div className="flex flex-wrap items-center gap-2">
+                {editYarnColors.map((c, i) => (
+                  <div key={i} className="relative group">
+                    <div
+                      className="h-8 w-8 rounded-lg shadow-sm border border-warm-wood-pale"
+                      style={{ background: c }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEditYarnColors(editYarnColors.filter((_, j) => j !== i))}
+                      className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-craft-rose text-white text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 ))}
-                <input type="color" value={editYarnColor} onChange={(e) => setEditYarnColor(e.target.value)} className="h-8 w-8 cursor-pointer rounded-lg border-2 border-warm-wood-pale" />
+                {editShowColorPicker ? (
+                  <div className="flex items-center gap-1">
+                    <div className="flex flex-wrap gap-1">
+                      {PRESET_COLORS.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => {
+                            setEditYarnColors([...editYarnColors, c]);
+                            setEditShowColorPicker(false);
+                          }}
+                          className="h-8 w-8 rounded-lg transition-all hover:scale-110 hover:ring-2 hover:ring-sage"
+                          style={{ background: c }}
+                        />
+                      ))}
+                    </div>
+                    <input
+                      type="color"
+                      value={editNewColor}
+                      onChange={(e) => {
+                        setEditNewColor(e.target.value);
+                        setEditYarnColors([...editYarnColors, e.target.value]);
+                        setEditShowColorPicker(false);
+                      }}
+                      className="h-8 w-8 cursor-pointer rounded-lg border-2 border-warm-wood-pale"
+                      title="Custom color"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEditShowColorPicker(false)}
+                      className="h-8 w-8 rounded-lg border border-warm-wood-pale text-warm-gray hover:bg-warm-bg text-xs font-bold"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setEditShowColorPicker(true)}
+                    className="flex items-center justify-center h-8 w-8 rounded-lg border-2 border-dashed border-sage text-sage font-bold text-lg hover:bg-sage-light transition-all"
+                    title="Add color"
+                  >
+                    +
+                  </button>
+                )}
               </div>
             </div>
             <div className="mb-3 grid grid-cols-2 gap-3">
@@ -775,8 +850,8 @@ export default function StashPage() {
                 <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Weight</label>
                 <select value={editYarnWeight} onChange={(e) => setEditYarnWeight(e.target.value)} className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage">
                   <option value="">Any</option>
-                  <option value="lace">Lace</option><option value="fingering">Fingering</option><option value="sport">Sport</option>
-                  <option value="dk">DK</option><option value="worsted">Worsted</option><option value="bulky">Bulky</option><option value="jumbo">Jumbo</option>
+                  <option value="lace">Lace</option><option value="fingering">Fingering</option><option value="sock">Sock</option><option value="sport">Sport</option>
+                  <option value="dk">DK</option><option value="worsted">Worsted</option><option value="bulky">Bulky</option><option value="super_bulky">Super Bulky</option><option value="jumbo">Jumbo</option>
                 </select>
               </div>
               <div>
