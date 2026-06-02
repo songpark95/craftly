@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import { ProjectCardSkeleton } from "@/components/Skeleton";
 import { createClient } from "@/lib/supabase/client";
 
 interface Project {
@@ -82,9 +83,11 @@ export default function Home() {
           <div className="flex-1">
             <h1 className="font-serif text-3xl">Your Craft Room</h1>
             <p className="text-sm font-semibold text-warm-gray">
-              {loading
-                ? "Loading..."
-                : `${wipProjects.length} in progress · ${queuedProjects.length} queued`}
+              {loading ? (
+                <span className="inline-block h-4 w-48 animate-pulse bg-warm-wood-pale rounded" />
+              ) : (
+                `${wipProjects.length} in progress · ${queuedProjects.length} queued`
+              )}
             </p>
           </div>
         </section>
@@ -113,9 +116,11 @@ export default function Home() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <p className="text-sm font-bold text-warm-gray">Loading projects...</p>
-          </div>
+          <section className="mb-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <ProjectCardSkeleton key={i} />
+            ))}
+          </section>
         ) : filtered.length === 0 ? (
           <div className="mb-12 flex flex-col items-center justify-center rounded-2xl bg-white p-12 shadow-soft border border-warm-wood-pale">
             <div className="mb-4 text-4xl">🧶</div>
@@ -157,13 +162,13 @@ export default function Home() {
                     </div>
 
                     {/* Header */}
-                    <div className="mb-2 flex items-start justify-between">
-                      <div>
-                        <h3 className="text-[15px] font-extrabold leading-tight">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-[15px] font-extrabold leading-tight truncate">
                           {project.name}
                         </h3>
                         {project.stitch_name && (
-                          <p className="text-[12px] text-warm-gray">
+                          <p className="text-[12px] text-warm-gray truncate">
                             {project.stitch_name}
                           </p>
                         )}

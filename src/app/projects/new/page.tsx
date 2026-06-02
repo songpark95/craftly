@@ -106,9 +106,9 @@ export default function NewProjectPage() {
             <button
               type="button"
               onClick={() => setType("knit")}
-              className={`flex-1 rounded-xl border-2 px-4 py-3 text-sm font-bold transition-all ${
+              className={`flex-1 rounded-xl border-[3px] px-4 py-4 text-base font-bold transition-all ${
                 type === "knit"
-                  ? "border-sage bg-sage/10 text-sage"
+                  ? "border-sage bg-sage/15 text-sage shadow-[0_0_0_2px_rgba(74,124,89,0.15)]"
                   : "border-warm-wood-pale bg-warm-bg text-warm-gray hover:border-warm-gray"
               }`}
             >
@@ -117,9 +117,9 @@ export default function NewProjectPage() {
             <button
               type="button"
               onClick={() => setType("crochet")}
-              className={`flex-1 rounded-xl border-2 px-4 py-3 text-sm font-bold transition-all ${
+              className={`flex-1 rounded-xl border-[3px] px-4 py-4 text-base font-bold transition-all ${
                 type === "crochet"
-                  ? "border-craft-purple bg-craft-purple/10 text-craft-purple"
+                  ? "border-craft-purple bg-craft-purple/15 text-craft-purple shadow-[0_0_0_2px_rgba(123,94,167,0.15)]"
                   : "border-warm-wood-pale bg-warm-bg text-warm-gray hover:border-warm-gray"
               }`}
             >
@@ -135,6 +135,11 @@ export default function NewProjectPage() {
         >
           {loading ? "Creating..." : "Start Project"}
         </button>
+        {!name.trim() && (
+          <p className="mt-2 text-center text-xs font-semibold text-warm-gray">
+            Enter a project name to continue
+          </p>
+        )}
       </form>
     </div>
   );

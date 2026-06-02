@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import { JournalSkeleton } from "@/components/Skeleton";
 import { createClient } from "@/lib/supabase/client";
 
 interface SessionStats {
@@ -222,7 +223,13 @@ export default function JournalPage() {
       <>
         <Nav />
         <main className="relative z-10 mx-auto max-w-6xl px-6 py-8">
-          <p className="text-sm font-bold text-warm-gray">Loading stats...</p>
+          <div className="mb-6">
+            <h1 className="font-serif text-2xl">📖 Journal</h1>
+            <p className="text-sm font-semibold text-warm-gray">
+              <span className="inline-block h-4 w-40 animate-pulse bg-warm-wood-pale rounded" />
+            </p>
+          </div>
+          <JournalSkeleton />
         </main>
       </>
     );
@@ -249,7 +256,7 @@ export default function JournalPage() {
             {["Week", "Month", "Year", "All Time"].map((p, i) => (
               <button
                 key={p}
-                className={`rounded-lg px-3 py-1 text-[12px] font-bold transition-colors ${
+                className={`rounded-lg px-3 py-2 text-[12px] font-bold transition-colors ${
                   i === 1 ? "bg-sage text-white" : "text-warm-gray hover:text-warm-dark"
                 }`}
               >
@@ -361,7 +368,7 @@ export default function JournalPage() {
               ) : (
                 stats.timePerProject.map((p) => (
                   <div key={p.name} className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 min-w-[150px]">
+                    <div className="flex items-center gap-2 min-w-0 flex-shrink-0 w-24 sm:w-32 lg:w-40">
                       <div
                         className="h-2.5 w-2.5 rounded-full flex-shrink-0"
                         style={{ background: p.color }}

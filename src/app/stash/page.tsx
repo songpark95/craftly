@@ -3,8 +3,15 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import { YarnCardSkeleton } from "@/components/Skeleton";
 import { createClient } from "@/lib/supabase/client";
-import { Search as SearchIcon, Plus, Link as LinkIcon } from "lucide-react";
+import { Search as SearchIcon, Plus, Link as LinkIcon, X } from "lucide-react";
+
+const PRESET_COLORS = [
+  "#4A7C59", "#D4A843", "#7B5EA7", "#C9707D",
+  "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6",
+  "#06B6D4", "#EC4899", "#10B981", "#F97316",
+];
 
 interface YarnWithAllocation {
   id: string;
@@ -30,6 +37,172 @@ export default function StashPage() {
   const [search, setSearch] = useState("");
   const [showFreeOnly, setShowFreeOnly] = useState(false);
 
+  // Add Yarn modal state
+  const [showAddYarn, setShowAddYarn] = useState(false);
+  const [yarnName, setYarnName] = useState("");
+  const [yarnBrand, setYarnBrand] = useState("");
+  const [yarnColor, setYarnColor] = useState(PRESET_COLORS[0]);
+  const [yarnWeight, setYarnWeight] = useState("");
+  const [yarnFiber, setYarnFiber] = useState("");
+  const [yarnQuantity, setYarnQuantity] = useState(1);
+  const [yarnYardage, setYarnYardage] = useState("");
+  const [yarnSaving, setYarnSaving] = useState(false);
+  const [yarnError, setYarnError] = useState<string | null>(null);
+
+  // Edit/Delete yarn
+  const [editingYarnId, setEditingYarnId] = useState<string | null>(null);
+  const [showEditYarn, setShowEditYarn] = useState(false);
+  const [editYarnName, setEditYarnName] = useState("");
+  const [editYarnBrand, setEditYarnBrand] = useState("");
+  const [editYarnColor, setEditYarnColor] = useState(PRESET_COLORS[0]);
+  const [editYarnWeight, setEditYarnWeight] = useState("");
+  const [editYarnFiber, setEditYarnFiber] = useState("");
+  const [editYarnQuantity, setEditYarnQuantity] = useState(1);
+  const [editYarnSaving, setEditYarnSaving] = useState(false);
+  const [yarnToDelete, setYarnToDelete] = useState<string | null>(null);
+
+  const refreshYarnList = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: yarnData } = await supabase
+      .from("yarn")
+      .select("*, project_yarn!left(project_id, quantity_used, project:projects(name))")
+      .eq("user_id", user.id)
+      .order("name");
+    const mapped: YarnWithAllocation[] = (yarnData || []).map((y) => {
+      const py = y.project_yarn?.[0];
+      return {
+        id: y.id, name: y.name, brand: y.brand, color_hex: y.color_hex,
+        weight: y.weight, fiber: y.fiber, quantity: y.quantity,
+        photo_url: y.photo_url, allocated: !!py, project_name: py?.project?.name || null,
+      };
+    });
+    setYarnList(mapped);
+  };
+
+  const resetYarnForm = () => {
+    setYarnName("");
+    setYarnBrand("");
+    setYarnColor(PRESET_COLORS[0]);
+    setYarnWeight("");
+    setYarnFiber("");
+    setYarnQuantity(1);
+    setYarnError(null);
+  };
+
+  const handleAddYarn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!yarnName.trim()) {
+      setYarnError("Give your yarn a name");
+      return;
+    }
+    setYarnSaving(true);
+    setYarnError(null);
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setYarnError("Not authenticated");
+      setYarnSaving(false);
+      return;
+    }
+
+    const { error: insertError } = await supabase.from("yarn").insert({
+      name: yarnName.trim(),
+      brand: yarnBrand.trim() || null,
+      color_hex: yarnColor,
+      weight: yarnWeight || null,
+      fiber: yarnFiber.trim() || null,
+      quantity: yarnQuantity,
+      yardage_per_skein: yarnYardage ? parseFloat(yarnYardage) : null,
+      user_id: user.id,
+    });
+
+    if (insertError) {
+      setYarnError(insertError.message);
+      setYarnSaving(false);
+      return;
+    }
+
+    // Refresh yarn list
+    const { data: yarnData } = await supabase
+      .from("yarn")
+      .select("*, project_yarn!left(project_id, quantity_used, project:projects(name))")
+      .eq("user_id", user.id)
+      .order("name");
+
+    const mapped: YarnWithAllocation[] = (yarnData || []).map((y) => {
+      const py = y.project_yarn?.[0];
+      return {
+        id: y.id,
+        name: y.name,
+        brand: y.brand,
+        color_hex: y.color_hex,
+        weight: y.weight,
+        fiber: y.fiber,
+        quantity: y.quantity,
+        photo_url: y.photo_url,
+        allocated: !!py,
+        project_name: py?.project?.name || null,
+      };
+    });
+
+    setYarnList(mapped);
+    setShowAddYarn(false);
+    resetYarnForm();
+    setYarnSaving(false);
+  };
+
+  const openEditYarn = (y: YarnWithAllocation) => {
+    setEditingYarnId(y.id);
+    setEditYarnName(y.name);
+    setEditYarnBrand(y.brand || "");
+    setEditYarnColor(y.color_hex || PRESET_COLORS[0]);
+    setEditYarnWeight(y.weight || "");
+    setEditYarnFiber(y.fiber || "");
+    setEditYarnQuantity(y.quantity);
+    setShowEditYarn(true);
+  };
+
+  const saveEditYarn = async () => {
+    if (!editingYarnId || !editYarnName.trim()) return;
+    setEditYarnSaving(true);
+    await supabase
+      .from("yarn")
+      .update({
+        name: editYarnName.trim(),
+        brand: editYarnBrand.trim() || null,
+        color_hex: editYarnColor,
+        weight: editYarnWeight || null,
+        fiber: editYarnFiber.trim() || null,
+        quantity: editYarnQuantity,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", editingYarnId);
+    await refreshYarnList();
+    setShowEditYarn(false);
+    setEditingYarnId(null);
+    setEditYarnSaving(false);
+  };
+
+  const deleteYarn = async () => {
+    if (!yarnToDelete) return;
+    try {
+      const { error } = await supabase.from("yarn").delete().eq("id", yarnToDelete);
+      if (error) {
+        console.error("Failed to delete yarn:", error);
+        return;
+      }
+      await refreshYarnList();
+      setYarnToDelete(null);
+    } catch (error) {
+      console.error("Failed to delete yarn:", error);
+    }
+  };
+
   useEffect(() => {
     async function load() {
       const {
@@ -44,7 +217,7 @@ export default function StashPage() {
       // Fetch yarn with project allocation info
       const { data: yarnData } = await supabase
         .from("yarn")
-        .select("*, project_yarn!left(project_id, skeins_used), project_yarn!left(project:projects(name))")
+        .select("*, project_yarn!left(project_id, quantity_used, project:projects(name))")
         .eq("user_id", user.id)
         .order("name");
 
@@ -91,19 +264,20 @@ export default function StashPage() {
   return (
     <>
       <Nav />
-      <main className="relative z-10 mx-auto max-w-6xl px-6 py-8">
-        <div className="mb-6 flex items-end justify-between">
-          <div>
-            <h1 className="font-serif text-2xl">🧵 Yarn Stash</h1>
-            <p className="text-sm font-semibold text-warm-gray">
-              {loading
-                ? "Loading..."
-                : `${totalSkeins} skeins · ${freeSkeins} unallocated`}
-            </p>
-          </div>
-          <button className="flex items-center gap-1.5 rounded-lg bg-sage px-4 py-2 text-[13px] font-bold text-white transition-all hover:bg-sage-deep">
-            <Plus size={14} />
-            Add Yarn
+      <main className="relative z-10 mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+        <div className="mb-6">
+          <h1 className="font-serif text-2xl mb-1">🧵 Yarn Stash</h1>
+          <p className="text-sm font-semibold text-warm-gray mb-4">
+            {loading
+              ? "Loading..."
+              : `${totalSkeins} skeins · ${freeSkeins} unallocated`}
+          </p>
+          <button
+            onClick={() => { resetYarnForm(); setShowAddYarn(true); }}
+            className="w-full flex items-center justify-center gap-2 rounded-2xl bg-sage px-6 py-4 text-base font-extrabold text-white shadow-soft transition-all hover:bg-sage-deep hover:-translate-y-0.5 hover:shadow-lifted active:scale-[0.98]"
+          >
+            <Plus size={20} />
+            Add Yarn to Stash
           </button>
         </div>
 
@@ -147,15 +321,17 @@ export default function StashPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search yarn..."
-              className="rounded-lg border border-warm-wood-pale bg-white py-1.5 pl-8 pr-3 text-[13px] font-semibold outline-none focus:border-sage w-48"
+              className="rounded-lg border border-warm-wood-pale bg-white py-2 pl-8 pr-3 text-[13px] font-semibold outline-none focus:border-sage w-full max-w-xs"
             />
           </div>
         </div>
 
         {/* Yarn Grid */}
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <p className="text-sm font-bold text-warm-gray">Loading stash...</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+              <YarnCardSkeleton key={i} />
+            ))}
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-2xl bg-white p-12 shadow-soft border border-warm-wood-pale">
@@ -172,7 +348,7 @@ export default function StashPage() {
               return (
                 <div
                   key={yarn.id}
-                  className="rounded-2xl bg-white p-4 shadow-soft border border-warm-wood-pale transition-all hover:-translate-y-0.5 hover:shadow-lifted"
+                  className="relative rounded-2xl bg-white p-4 shadow-soft border border-warm-wood-pale transition-all hover:-translate-y-0.5 hover:shadow-lifted"
                 >
                   <div className="flex items-start gap-3">
                     {/* Color swatch */}
@@ -181,9 +357,41 @@ export default function StashPage() {
                       style={{ background: color }}
                     />
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-[14px] font-extrabold truncate">
-                        {yarn.name}
-                      </h3>
+                      <div className="flex items-start justify-between">
+                        <h3 className="text-[14px] font-extrabold truncate">
+                          {yarn.name}
+                        </h3>
+                        <div className="relative ml-2 flex-shrink-0">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingYarnId(editingYarnId === yarn.id ? null : yarn.id);
+                            }}
+                            className="flex h-9 w-9 items-center justify-center rounded-lg text-warm-gray hover:bg-warm-bg active:scale-95"
+                          >
+                            ⋯
+                          </button>
+                          {editingYarnId === yarn.id && (
+                            <>
+                              <div className="fixed inset-0 z-30" onClick={() => setEditingYarnId(null)} />
+                              <div className="absolute right-0 top-full z-40 mt-1 w-36 rounded-xl bg-white py-1 shadow-lifted border border-warm-wood-pale">
+                                <button
+                                  onClick={() => { openEditYarn(yarn); setEditingYarnId(null); }}
+                                  className="w-full px-3 py-2 text-left text-[13px] font-bold text-warm-dark hover:bg-warm-bg"
+                                >
+                                  ✏️ Edit
+                                </button>
+                                <button
+                                  onClick={() => { setYarnToDelete(yarn.id); setEditingYarnId(null); }}
+                                  className="w-full px-3 py-2 text-left text-[13px] font-bold text-craft-rose hover:bg-craft-rose-light"
+                                >
+                                  🗑 Delete
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
                       <p className="text-[12px] text-warm-gray">
                         {[yarn.brand, yarn.weight].filter(Boolean).join(" · ")}
                       </p>
@@ -192,6 +400,11 @@ export default function StashPage() {
                           .filter(Boolean)
                           .join(" · ")}
                       </p>
+                      {(yarn as any).yardage_per_skein && (
+                        <p className="text-[12px] text-warm-gray">
+                          {(yarn as any).yardage_per_skein}yd/skein · {((yarn as any).yardage_per_skein * yarn.quantity).toFixed(0)}yd total
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -217,6 +430,243 @@ export default function StashPage() {
           </div>
         )}
       </main>
+
+      {/* Add Yarn Modal */}
+      {showAddYarn && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="font-serif text-xl font-semibold">Add Yarn</h2>
+              <button
+                onClick={() => setShowAddYarn(false)}
+                className="rounded-lg p-1 text-warm-gray hover:bg-warm-bg"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {yarnError && (
+              <div className="mb-4 rounded-xl bg-craft-rose-light px-4 py-3 text-[13px] font-bold text-craft-rose">
+                {yarnError}
+              </div>
+            )}
+
+            <form onSubmit={handleAddYarn}>
+              {/* Name */}
+              <div className="mb-3">
+                <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                  Name <span className="text-craft-rose">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={yarnName}
+                  onChange={(e) => setYarnName(e.target.value)}
+                  placeholder="e.g. Malabrigo Rios"
+                  required
+                  autoFocus
+                  className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage"
+                />
+              </div>
+
+              {/* Brand */}
+              <div className="mb-3">
+                <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                  Brand
+                </label>
+                <input
+                  type="text"
+                  value={yarnBrand}
+                  onChange={(e) => setYarnBrand(e.target.value)}
+                  placeholder="e.g. Malabrigo"
+                  className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage"
+                />
+              </div>
+
+              {/* Color */}
+              <div className="mb-3">
+                <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                  Color
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {PRESET_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setYarnColor(c)}
+                      className={`h-11 w-11 rounded-lg transition-all ${
+                        yarnColor === c
+                          ? "ring-2 ring-offset-2 ring-sage scale-110"
+                          : "hover:scale-105"
+                      }`}
+                      style={{ background: c }}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={yarnColor}
+                    onChange={(e) => setYarnColor(e.target.value)}
+                    className="h-11 w-11 cursor-pointer rounded-lg border-2 border-warm-wood-pale"
+                    title="Custom color"
+                  />
+                </div>
+              </div>
+
+              {/* Weight + Fiber row */}
+              <div className="mb-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                    Weight
+                  </label>
+                  <select
+                    value={yarnWeight}
+                    onChange={(e) => setYarnWeight(e.target.value)}
+                    className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage"
+                  >
+                    <option value="">Any</option>
+                    <option value="lace">Lace</option>
+                    <option value="fingering">Fingering</option>
+                    <option value="sport">Sport</option>
+                    <option value="dk">DK</option>
+                    <option value="worsted">Worsted</option>
+                    <option value="bulky">Bulky</option>
+                    <option value="jumbo">Jumbo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                    Fiber
+                  </label>
+                  <input
+                    type="text"
+                    value={yarnFiber}
+                    onChange={(e) => setYarnFiber(e.target.value)}
+                    placeholder="e.g. Merino wool"
+                    className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage"
+                  />
+                </div>
+              </div>
+
+              {/* Quantity */}
+              <div className="mb-3">
+                <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                  Skeins
+                </label>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setYarnQuantity(Math.max(1, yarnQuantity - 1))}
+                    className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-warm-wood-pale bg-white text-lg font-bold text-warm-gray hover:border-craft-rose hover:text-craft-rose active:scale-95"
+                  >
+                    -
+                  </button>
+                  <span className="min-w-[3ch] text-center text-lg font-bold">
+                    {yarnQuantity}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setYarnQuantity(yarnQuantity + 1)}
+                    className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-warm-wood-pale bg-white text-lg font-bold text-warm-gray hover:border-sage hover:text-sage active:scale-95"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Yardage per Skein */}
+              <div className="mb-6">
+                <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                  Yardage per Skein
+                </label>
+                <input
+                  type="number"
+                  value={yarnYardage}
+                  onChange={(e) => setYarnYardage(e.target.value)}
+                  placeholder="e.g. 210"
+                  min="0"
+                  className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={yarnSaving || !yarnName.trim()}
+                className="w-full rounded-xl bg-sage py-3 text-sm font-extrabold text-white transition-all hover:bg-sage-deep disabled:opacity-50"
+              >
+                {yarnSaving ? "Adding..." : "Add to Stash"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Yarn Modal */}
+      {showEditYarn && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="font-serif text-xl font-semibold">Edit Yarn</h2>
+              <button onClick={() => setShowEditYarn(false)} className="rounded-lg p-1 text-warm-gray hover:bg-warm-bg">✕</button>
+            </div>
+            <div className="mb-3">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Name <span className="text-craft-rose">*</span></label>
+              <input type="text" value={editYarnName} onChange={(e) => setEditYarnName(e.target.value)} className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage" />
+            </div>
+            <div className="mb-3">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Brand</label>
+              <input type="text" value={editYarnBrand} onChange={(e) => setEditYarnBrand(e.target.value)} className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage" />
+            </div>
+            <div className="mb-3">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Color</label>
+              <div className="flex flex-wrap gap-2">
+                {PRESET_COLORS.map((c) => (
+                  <button key={c} type="button" onClick={() => setEditYarnColor(c)} className={`h-8 w-8 rounded-lg transition-all ${editYarnColor === c ? "ring-2 ring-offset-2 ring-sage scale-110" : "hover:scale-105"}`} style={{ background: c }} />
+                ))}
+                <input type="color" value={editYarnColor} onChange={(e) => setEditYarnColor(e.target.value)} className="h-8 w-8 cursor-pointer rounded-lg border-2 border-warm-wood-pale" />
+              </div>
+            </div>
+            <div className="mb-3 grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Weight</label>
+                <select value={editYarnWeight} onChange={(e) => setEditYarnWeight(e.target.value)} className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage">
+                  <option value="">Any</option>
+                  <option value="lace">Lace</option><option value="fingering">Fingering</option><option value="sport">Sport</option>
+                  <option value="dk">DK</option><option value="worsted">Worsted</option><option value="bulky">Bulky</option><option value="jumbo">Jumbo</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Fiber</label>
+                <input type="text" value={editYarnFiber} onChange={(e) => setEditYarnFiber(e.target.value)} className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage" />
+              </div>
+            </div>
+            <div className="mb-6">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Skeins</label>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setEditYarnQuantity(Math.max(1, editYarnQuantity - 1))} className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-warm-wood-pale bg-white text-lg font-bold text-warm-gray hover:border-craft-rose hover:text-craft-rose active:scale-95">-</button>
+                <span className="min-w-[3ch] text-center text-lg font-bold">{editYarnQuantity}</span>
+                <button type="button" onClick={() => setEditYarnQuantity(editYarnQuantity + 1)} className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-warm-wood-pale bg-white text-lg font-bold text-warm-gray hover:border-sage hover:text-sage active:scale-95">+</button>
+              </div>
+            </div>
+            <button onClick={saveEditYarn} disabled={editYarnSaving || !editYarnName.trim()} className="w-full rounded-xl bg-sage py-3 text-sm font-extrabold text-white transition-all hover:bg-sage-deep disabled:opacity-50">
+              {editYarnSaving ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Yarn Confirmation */}
+      {yarnToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale text-center">
+            <div className="mb-3 text-4xl">🗑</div>
+            <h2 className="font-serif text-lg font-semibold mb-2">Delete this yarn?</h2>
+            <p className="text-[13px] text-warm-gray mb-5">This will permanently remove it from your stash.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setYarnToDelete(null)} className="flex-1 rounded-xl border-2 border-warm-wood-pale bg-white py-2.5 text-sm font-bold text-warm-gray hover:bg-warm-bg transition-colors">Cancel</button>
+              <button onClick={deleteYarn} className="flex-1 rounded-xl bg-craft-rose py-2.5 text-sm font-extrabold text-white hover:bg-craft-rose-deep transition-colors">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
