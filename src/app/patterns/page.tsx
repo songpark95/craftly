@@ -285,7 +285,7 @@ export default function PatternsPage() {
             {filtered.map((pattern) => (
               <div
                 key={pattern.id}
-                className="group relative cursor-pointer overflow-hidden rounded-2xl bg-white shadow-soft border border-warm-wood-pale transition-all hover:-translate-y-0.5 hover:shadow-lifted"
+                className="group relative overflow-hidden rounded-2xl bg-white shadow-soft border border-warm-wood-pale transition-all hover:-translate-y-0.5 hover:shadow-lifted"
               >
                 <StitchPreview type={pattern.type} />
                 <div className="p-4">
