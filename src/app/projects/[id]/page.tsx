@@ -34,12 +34,20 @@ interface ProjectData {
   yarn_color: string | null;
   yarn_name: string | null;
   notes: string | null;
-  photo_url: string | null;
   date_started: string | null;
   deadline_date: string | null;
   deadline_notes: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface ProjectPhoto {
+  id: string;
+  project_id: string;
+  photo_url: string;
+  photo_type: 'start' | 'progress' | 'final';
+  sort_order: number;
+  created_at: string;
 }
 
 interface CounterData {
@@ -116,7 +124,8 @@ export default function ProjectDetail() {
   const [assigningYarn, setAssigningYarn] = useState(false);
 
   // Photo upload state
-  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photos, setPhotos] = useState<ProjectPhoto[]>([]);
+  const [photoUploading, setPhotoUploading] = useState<string | null>(null);
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
 
   // Settings menu + Edit/Delete
@@ -255,6 +264,14 @@ export default function ProjectDetail() {
           }))
         );
       }
+
+      // Fetch photos
+      const { data: photosData } = await supabase
+        .from('project_photos')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('sort_order');
+      if (photosData) setPhotos(photosData);
 
       setLoading(false);
     }
@@ -670,70 +687,80 @@ export default function ProjectDetail() {
     }
   };
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (photoType: 'start' | 'progress' | 'final', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !project || !userId) return;
 
-    // Validate file type
     const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
     if (!allowedTypes.includes(file.type)) {
       setPhotoUploadError("Only JPG, PNG, and WebP images are allowed.");
       return;
     }
-
-    // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
       setPhotoUploadError("File size must be under 10MB.");
       return;
     }
 
     setPhotoUploadError(null);
-    setPhotoUploading(true);
+    setPhotoUploading(photoType);
 
     try {
-      // Ensure the bucket exists (idempotent call)
+      // Ensure bucket exists
       const { data: buckets } = await supabase.storage.listBuckets();
       const bucketExists = buckets?.some((b) => b.name === "project-photos");
       if (!bucketExists) {
-        await supabase.storage.createBucket("project-photos", {
-          public: true,
-        });
+        await supabase.storage.createBucket("project-photos", { public: true });
       }
 
-      // Upload to: {userId}/{projectId}/{filename}
       const fileExt = file.name.split(".").pop() || "jpg";
-      const filePath = `${userId}/${project.id}/photo.${fileExt}`;
+      const filePath = `${userId}/${project.id}/${photoType}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from("project-photos")
         .upload(filePath, file, { upsert: true });
-
       if (uploadError) throw uploadError;
 
-      // Get public URL
       const { data: urlData } = supabase.storage
         .from("project-photos")
         .getPublicUrl(filePath);
-
       const photoUrl = urlData?.publicUrl || "";
 
-      // Update the project's photo_url in the database
-      const { error: updateError } = await supabase
-        .from("projects")
-        .update({ photo_url: photoUrl, updated_at: new Date().toISOString() })
-        .eq("id", project.id);
-
-      if (updateError) throw updateError;
+      // Upsert into project_photos table
+      const { error: dbError } = await supabase
+        .from("project_photos")
+        .upsert(
+          { project_id: project.id, photo_url: photoUrl, photo_type: photoType, sort_order: 0 },
+          { onConflict: "project_id,photo_type" }
+        );
+      if (dbError) throw dbError;
 
       // Update local state
-      setProject({ ...project, photo_url: photoUrl });
+      setPhotos((prev) => {
+        const existing = prev.find((p) => p.photo_type === photoType);
+        if (existing) {
+          return prev.map((p) => (p.photo_type === photoType ? { ...p, photo_url: photoUrl } : p));
+        }
+        return [...prev, { id: crypto.randomUUID(), project_id: project.id, photo_url: photoUrl, photo_type: photoType, sort_order: 0, created_at: new Date().toISOString() }];
+      });
     } catch (err: any) {
       console.error("Photo upload error:", err);
       setPhotoUploadError(err?.message || "Failed to upload photo.");
     } finally {
-      setPhotoUploading(false);
+      setPhotoUploading(null);
       // Reset the file input so the same file can be re-selected
       e.target.value = "";
+    }
+  };
+
+  const handlePhotoDelete = async (photoType: 'start' | 'progress' | 'final') => {
+    if (!project) return;
+    const { error } = await supabase
+      .from('project_photos')
+      .delete()
+      .eq('project_id', project.id)
+      .eq('photo_type', photoType);
+    if (!error) {
+      setPhotos((prev) => prev.filter((p) => p.photo_type !== photoType));
     }
   };
 
@@ -1368,53 +1395,72 @@ export default function ProjectDetail() {
               )}
             </div>
 
-            {/* Progress Photo */}
+            {/* Project Photos */}
             <div className="rounded-2xl bg-white p-5 shadow-soft border border-warm-wood-pale">
-              <h3 className="mb-3 text-xs font-extrabold uppercase tracking-wider text-warm-gray">
-                Progress Photo
+              <h3 className="mb-4 text-xs font-extrabold uppercase tracking-wider text-warm-gray">
+                Project Photos
               </h3>
 
-              {project.photo_url ? (
-                <div className="relative group">
-                  <img
-                    src={project.photo_url}
-                    alt="Progress photo"
-                    className="w-full rounded-xl object-cover aspect-square"
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 group-hover:bg-black/30 transition-all">
-                    <label className="cursor-pointer rounded-lg bg-white/90 px-4 py-2 text-[12px] font-extrabold text-warm-dark opacity-0 group-hover:opacity-100 transition-all hover:bg-white shadow-soft flex items-center gap-1.5">
-                      <Upload size={14} />
-                      Replace
-                      <input
-                        type="file"
-                        accept=".jpg,.jpeg,.png,.webp"
-                        className="hidden"
-                        onChange={handlePhotoUpload}
-                        disabled={photoUploading}
-                      />
-                    </label>
-                  </div>
-                </div>
-              ) : (
-                <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-warm-wood-pale bg-warm-bg p-8 transition-all hover:border-sage hover:bg-sage-light/30">
-                  <div className="mb-3 rounded-full bg-white p-3 shadow-soft">
-                    <Camera size={24} className="text-warm-gray" />
-                  </div>
-                  <span className="text-[13px] font-extrabold text-warm-dark mb-1">
-                    {photoUploading ? "Uploading..." : "Add a photo"}
-                  </span>
-                  <span className="text-[11px] text-warm-gray text-center">
-                    JPG, PNG, or WebP
-                  </span>
-                  <input
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.webp"
-                    className="hidden"
-                    onChange={handlePhotoUpload}
-                    disabled={photoUploading}
-                  />
-                </label>
-              )}
+              <div className="grid grid-cols-3 gap-3">
+                {(['start', 'progress', 'final'] as const).map((photoType) => {
+                  const photo = photos.find((p) => p.photo_type === photoType);
+                  const label = photoType === 'start' ? 'Start' : photoType === 'progress' ? 'In Progress' : 'Final';
+                  const isUploading = photoUploading === photoType;
+
+                  return (
+                    <div key={photoType} className="flex flex-col items-center gap-2">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-warm-gray">
+                        {label}
+                      </span>
+
+                      {photo ? (
+                        <div className="relative group w-full aspect-square">
+                          <img
+                            src={photo.photo_url}
+                            alt={`${label} photo`}
+                            className="w-full h-full rounded-xl object-cover"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-xl bg-black/0 group-hover:bg-black/30 transition-all">
+                            <label className="cursor-pointer rounded-lg bg-white/90 px-3 py-1.5 text-[10px] font-extrabold text-warm-dark opacity-0 group-hover:opacity-100 transition-all hover:bg-white shadow-soft flex items-center gap-1">
+                              <Upload size={12} />
+                              Replace
+                              <input
+                                type="file"
+                                accept=".jpg,.jpeg,.png,.webp"
+                                className="hidden"
+                                onChange={(e) => handlePhotoUpload(photoType, e)}
+                                disabled={isUploading}
+                              />
+                            </label>
+                            <button
+                              onClick={() => handlePhotoDelete(photoType)}
+                              className="cursor-pointer rounded-lg bg-craft-rose/90 px-3 py-1.5 text-[10px] font-extrabold text-white opacity-0 group-hover:opacity-100 transition-all hover:bg-craft-rose shadow-soft"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-warm-wood-pale bg-warm-bg w-full aspect-square transition-all hover:border-sage hover:bg-sage-light/30">
+                          <div className="mb-2 rounded-full bg-white p-2 shadow-soft">
+                            <Camera size={18} className="text-warm-gray" />
+                          </div>
+                          <span className="text-[10px] font-extrabold text-warm-dark">
+                            {isUploading ? 'Uploading...' : `Add ${label}`}
+                          </span>
+                          <input
+                            type="file"
+                            accept=".jpg,.jpeg,.png,.webp"
+                            className="hidden"
+                            onChange={(e) => handlePhotoUpload(photoType, e)}
+                            disabled={isUploading}
+                          />
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
               {photoUploading && (
                 <div className="mt-3 flex items-center justify-center gap-2 text-[12px] font-bold text-sage">
