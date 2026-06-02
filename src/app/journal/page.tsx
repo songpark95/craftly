@@ -25,6 +25,7 @@ interface RawProject {
   name: string;
   status: string | null;
   current_row: number | null;
+  total_rows: number | null;
   yarn_color: string | null;
   created_at: string;
   completed_at: string | null;
@@ -38,6 +39,12 @@ interface Achievement {
   category: string;
   target: number;
   getValue: (d: StatsData) => number;
+}
+
+interface ProjectPhoto {
+  project_id: string;
+  photo_url: string;
+  photo_type: "start" | "progress" | "final";
 }
 
 interface StatsData {
@@ -287,6 +294,7 @@ export default function JournalPage() {
   const [period, setPeriod] = useState<Period>("all");
   const [projects, setProjects] = useState<RawProject[]>([]);
   const [allSessions, setAllSessions] = useState<RawSession[]>([]);
+  const [projectPhotos, setProjectPhotos] = useState<ProjectPhoto[]>([]);
   const [showAchievements, setShowAchievements] = useState(false);
 
   useEffect(() => {
@@ -307,8 +315,13 @@ export default function JournalPage() {
         .eq("user_id", user.id)
         .order("started_at", { ascending: false });
 
+      const { data: photoData } = await supabase
+        .from("project_photos")
+        .select("project_id, photo_url, photo_type");
+
       setProjects(projectData || []);
       setAllSessions((sessionData as unknown as RawSession[]) || []);
+      setProjectPhotos((photoData as ProjectPhoto[]) || []);
       setLoading(false);
     }
     load();
@@ -517,6 +530,91 @@ export default function JournalPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Project Timeline */}
+        {projects.length > 0 && (
+          <div className="mb-6 rounded-2xl bg-white p-6 shadow-soft border border-warm-wood-pale">
+            <div className="mb-4">
+              <h2 className="font-serif text-lg">📸 Project Progress</h2>
+              <p className="text-[13px] font-semibold text-warm-gray">
+                {projectPhotos.length > 0
+                  ? `${projects.length} projects · ${projectPhotos.length} photos uploaded`
+                  : "Upload photos on each project to see your progress here"}
+              </p>
+            </div>
+            <div className="space-y-5">
+              {projects.map((project) => {
+                const photos = projectPhotos.filter((p) => p.project_id === project.id);
+                const byType = new Map(photos.map((p) => [p.photo_type, p.photo_url]));
+                const hasAny = byType.size > 0;
+                const progress = project.total_rows ? Math.round(((project.current_row || 0) / project.total_rows) * 100) : 0;
+                const statusColor = project.status === "done" ? "bg-sage text-white" : project.status === "active" ? "bg-sage-light text-sage-deep" : "bg-warm-bg text-warm-gray";
+                const statusLabel = project.status === "done" ? "Finished" : project.status === "active" ? "In Progress" : "Not Started";
+
+                return (
+                  <div key={project.id} className={`rounded-xl border border-warm-wood-pale/60 p-4 ${hasAny ? "bg-warm-bg/30" : "bg-white"}`}>
+                    {/* Project header */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ background: project.yarn_color || "#6B9E7A" }}
+                        />
+                        <span className="text-[14px] font-extrabold">{project.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${statusColor}`}>
+                          {statusLabel}
+                        </span>
+                        {project.total_rows ? (
+                          <span className="text-[11px] font-bold text-warm-gray">
+                            {project.current_row || 0}/{project.total_rows} rows ({progress}%)
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Photo timeline: Start → Progress → Final */}
+                    <div className="flex items-start gap-2">
+                      {(["start", "progress", "final"] as const).map((type, i) => {
+                        const url = byType.get(type);
+                        const label = type === "start" ? "Started" : type === "progress" ? "In Progress" : "Final";
+                        return (
+                          <div key={type} className="flex items-start gap-2 flex-1">
+                            {/* Connector line */}
+                            {i > 0 && (
+                              <div className="flex-shrink-0 w-6 pt-8">
+                                <div className="h-px w-full bg-warm-wood-pale" style={{ width: '100%' }}>
+                                  <div className="h-px bg-warm-wood-pale" style={{ width: '100%', marginTop: '0px' }} />
+                                </div>
+                              </div>
+                            )}
+                            <div className="flex-1 flex flex-col items-center">
+                              {url ? (
+                                <div className="relative w-full aspect-square rounded-lg overflow-hidden mb-2 shadow-sm">
+                                  <img src={url} alt={`${project.name} ${label}`} className="w-full h-full object-cover" />
+                                </div>
+                              ) : (
+                                <div className="w-full aspect-square rounded-lg border-2 border-dashed border-warm-wood-pale flex items-center justify-center mb-2 bg-white">
+                                  <span className="text-[20px] opacity-30">
+                                    {type === "start" ? "🌱" : type === "progress" ? "🔨" : "🏁"}
+                                  </span>
+                                </div>
+                              )}
+                              <span className={`text-[10px] font-bold text-center ${url ? "text-warm-dark" : "text-warm-gray"}`}>
+                                {label}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
