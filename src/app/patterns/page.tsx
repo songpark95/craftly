@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Nav from "@/components/Nav";
 import { PatternCardSkeleton } from "@/components/Skeleton";
 import { createClient } from "@/lib/supabase/client";
-import { Search as SearchIcon, Plus } from "lucide-react";
+import { Search as SearchIcon, Plus, FileText, Upload } from "lucide-react";
 
 interface Pattern {
   id: string;
@@ -18,6 +18,9 @@ interface Pattern {
   url: string | null;
   saved: boolean;
   tags: string[] | null;
+  pdf_url: string | null;
+  pdf_name: string | null;
+  user_id: string;
 }
 
 const CATEGORIES = [
@@ -98,6 +101,10 @@ export default function PatternsPage() {
   const [editPatternDifficulty, setEditPatternDifficulty] = useState(1);
   const [editPatternDescription, setEditPatternDescription] = useState("");
   const [editPatternSaving, setEditPatternSaving] = useState(false);
+  const [editPatternPdf, setEditPatternPdf] = useState<File | null>(null);
+  const [editPatternUploadingPdf, setEditPatternUploadingPdf] = useState(false);
+  const [editPatternExistingPdf, setEditPatternExistingPdf] = useState<{ url: string; name: string } | null>(null);
+  const editPdfInputRef = useRef<HTMLInputElement>(null);
   const [patternToDelete, setPatternToDelete] = useState<string | null>(null);
 
   const refreshPatterns = async () => {
@@ -118,12 +125,18 @@ export default function PatternsPage() {
     setEditPatternCategory(p.category || "");
     setEditPatternDifficulty(p.difficulty || 1);
     setEditPatternDescription(p.description || "");
+    setEditPatternPdf(null);
+    setEditPatternExistingPdf(p.pdf_url ? { url: p.pdf_url, name: p.pdf_name || "Pattern.pdf" } : null);
     setShowEditPattern(true);
   };
 
   const saveEditPattern = async () => {
     if (!editingPatternId || !editPatternName.trim()) return;
     setEditPatternSaving(true);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setEditPatternSaving(false); return; }
+
     await supabase
       .from("patterns")
       .update({
@@ -135,6 +148,34 @@ export default function PatternsPage() {
         updated_at: new Date().toISOString(),
       })
       .eq("id", editingPatternId);
+
+    // Upload new PDF if one was selected
+    if (editPatternPdf) {
+      setEditPatternUploadingPdf(true);
+      try {
+        const ext = editPatternPdf.name.split(".").pop() || "pdf";
+        const path = `patterns/${user.id}/${editingPatternId}.${ext}`;
+
+        const { error: uploadErr } = await supabase.storage
+          .from("pattern-pdfs")
+          .upload(path, editPatternPdf, { upsert: true });
+
+        if (!uploadErr) {
+          const { data: urlData } = supabase.storage
+            .from("pattern-pdfs")
+            .getPublicUrl(path);
+
+          await supabase
+            .from("patterns")
+            .update({ pdf_url: urlData.publicUrl, pdf_name: editPatternPdf.name })
+            .eq("id", editingPatternId);
+        }
+      } catch (err) {
+        console.error("PDF upload error:", err);
+      }
+      setEditPatternUploadingPdf(false);
+    }
+
     await refreshPatterns();
     setShowEditPattern(false);
     setEditingPatternId(null);
@@ -419,8 +460,70 @@ export default function PatternsPage() {
               <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">Description</label>
               <textarea value={editPatternDescription} onChange={(e) => setEditPatternDescription(e.target.value)} rows={3} className="w-full rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-2.5 text-sm font-semibold text-warm-dark outline-none transition-colors focus:border-sage resize-none" />
             </div>
+            {/* Pattern PDF */}
+            <div className="mb-6">
+              <label className="mb-1 block text-[13px] font-extrabold text-warm-gray">
+                <FileText size={14} className="mr-1 inline" />Pattern PDF
+              </label>
+              {editPatternExistingPdf && !editPatternPdf ? (
+                <div className="flex items-center gap-3 rounded-xl border-2 border-warm-wood-pale bg-warm-bg px-4 py-3">
+                  <FileText size={18} className="text-sage shrink-0" />
+                  <a
+                    href={editPatternExistingPdf.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[13px] font-bold text-sage hover:text-sage-deep truncate flex-1"
+                  >
+                    {editPatternExistingPdf.name}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!editingPatternId) return;
+                      await supabase.from("patterns").update({ pdf_url: null, pdf_name: null }).eq("id", editingPatternId);
+                      setEditPatternExistingPdf(null);
+                    }}
+                    className="text-[11px] font-bold text-craft-rose hover:text-craft-rose-deep transition-colors px-2 py-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : editPatternPdf ? (
+                <div className="flex items-center gap-3 rounded-xl border-2 border-sage bg-sage-light px-4 py-3">
+                  <FileText size={18} className="text-sage shrink-0" />
+                  <span className="text-[13px] font-bold text-warm-dark truncate flex-1">
+                    {editPatternPdf.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditPatternPdf(null)}
+                    className="text-[11px] font-bold text-craft-rose hover:text-craft-rose-deep transition-colors px-2 py-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-warm-wood-pale bg-warm-bg px-6 py-5 transition-all hover:border-sage hover:bg-sage-light">
+                  <Upload size={20} className="mb-2 text-warm-gray" />
+                  <span className="text-[13px] font-bold text-warm-gray">
+                    {editPatternExistingPdf ? "Replace PDF" : "Upload pattern PDF"}
+                  </span>
+                  <input
+                    ref={editPdfInputRef}
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setEditPatternPdf(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              )}
+            </div>
             <button onClick={saveEditPattern} disabled={editPatternSaving || !editPatternName.trim()} className="w-full rounded-xl bg-sage py-3 text-sm font-extrabold text-white transition-all hover:bg-sage-deep disabled:opacity-50">
-              {editPatternSaving ? "Saving..." : "Save Changes"}
+              {editPatternSaving ? (editPatternUploadingPdf ? "Uploading PDF..." : "Saving...") : "Save Changes"}
             </button>
           </div>
         </div>
