@@ -18,6 +18,8 @@ interface PatternData {
   notes: string | null;
   saved: boolean;
   tags: string[] | null;
+  stitch_key: { repeat: number; rows: number; note: string } | null;
+  chart_data: string[][] | null;
   pdf_url: string | null;
   pdf_name: string | null;
   user_id: string;
@@ -228,6 +230,98 @@ export default function PatternDetailPage() {
                 {tag}
               </span>
             ))}
+          </div>
+        )}
+
+        {/* Stitch Key + Chart Row */}
+        {(pattern.stitch_key || pattern.chart_data) && (
+          <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Stitch Key */}
+            {pattern.stitch_key && (
+              <div className="rounded-2xl bg-white p-5 shadow-soft border border-warm-wood-pale">
+                <h2 className="mb-3 text-xs font-extrabold uppercase tracking-wider text-warm-gray">
+                  Stitch Key
+                </h2>
+                <div className="space-y-2">
+                  {pattern.stitch_key.repeat > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-bold text-warm-gray w-20 shrink-0">Repeat</span>
+                      <span className="text-sm font-semibold text-warm-dark">
+                        {pattern.stitch_key.repeat} sts × {pattern.stitch_key.rows} rows
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-start gap-2">
+                    <span className="text-[11px] font-bold text-warm-gray w-20 shrink-0 pt-0.5">Note</span>
+                    <span className="text-[13px] leading-relaxed text-warm-dark">
+                      {pattern.stitch_key.note}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Chart */}
+            {pattern.chart_data && pattern.chart_data.length > 0 && (
+              <div className="rounded-2xl bg-white p-5 shadow-soft border border-warm-wood-pale">
+                <h2 className="mb-3 text-xs font-extrabold uppercase tracking-wider text-warm-gray">
+                  Chart
+                </h2>
+                <div className="flex justify-center">
+                  <div className="inline-grid gap-[2px]" style={{ gridTemplateColumns: `repeat(${pattern.chart_data[0]?.length || 1}, minmax(0, 1fr))` }}>
+                    {pattern.chart_data.map((row, ri) =>
+                      row.map((cell, ci) => (
+                        <div
+                          key={`${ri}-${ci}`}
+                          className={`flex h-8 w-8 items-center justify-center rounded text-[10px] font-bold border ${
+                            cell === "." ? "bg-white text-warm-gray border-warm-wood-pale" :
+                            cell === "-" ? "bg-sage-light text-sage-deep border-sage" :
+                            cell === "sc" ? "bg-white text-warm-dark border-warm-wood-pale" :
+                            cell === "dc" ? "bg-sage-light text-sage-deep border-sage" :
+                            cell === "hdc" ? "bg-craft-purple-light text-craft-purple border-craft-purple" :
+                            cell === "FP" ? "bg-craft-amber-light text-craft-amber border-craft-amber" :
+                            cell === "BO" ? "bg-craft-rose-light text-craft-rose border-craft-rose" :
+                            cell === "V" ? "bg-sage-light text-sage-deep border-sage" :
+                            cell === "dc3" ? "bg-sage-light text-sage-deep border-sage" :
+                            cell === "sh5" ? "bg-sage text-white border-sage-deep" :
+                            cell.startsWith("t") ? "bg-craft-purple-light text-craft-purple border-craft-purple" :
+                            "bg-white text-warm-gray border-warm-wood-pale"
+                          }`}
+                          title={cell}
+                        >
+                          {cell}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                {/* Legend */}
+                <div className="mt-3 flex flex-wrap gap-2 justify-center">
+                  {pattern.type === "knit" ? (
+                    <>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warm-gray">
+                        <span className="inline-block h-3 w-3 rounded border border-warm-wood-pale bg-white" /> knit (RS)
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warm-gray">
+                        <span className="inline-block h-3 w-3 rounded border border-sage bg-sage-light" /> purl (RS)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warm-gray">
+                        <span className="inline-block h-3 w-3 rounded border border-warm-wood-pale bg-white" /> sc
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warm-gray">
+                        <span className="inline-block h-3 w-3 rounded border border-sage bg-sage-light" /> dc
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warm-gray">
+                        <span className="inline-block h-3 w-3 rounded border border-craft-purple bg-craft-purple-light" /> hdc/cluster
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -211,7 +211,18 @@ export default function PatternsPage() {
         .eq("user_id", user.id)
         .order("name");
 
-      setPatterns(data || []);
+      // Auto-seed if user has no patterns yet
+      if (!data || data.length === 0) {
+        await fetch("/api/seed-patterns", { method: "POST" });
+        const { data: seeded } = await supabase
+          .from("patterns")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("name");
+        setPatterns(seeded || []);
+      } else {
+        setPatterns(data);
+      }
       setLoading(false);
     }
     load();
@@ -324,9 +335,10 @@ export default function PatternsPage() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map((pattern) => (
-              <div
+              <Link
                 key={pattern.id}
-                className="group relative overflow-hidden rounded-2xl bg-white shadow-soft border border-warm-wood-pale transition-all hover:-translate-y-0.5 hover:shadow-lifted"
+                href={`/patterns/${pattern.id}`}
+                className="group relative overflow-hidden rounded-2xl bg-white shadow-soft border border-warm-wood-pale transition-all hover:-translate-y-0.5 hover:shadow-lifted block"
               >
                 <StitchPreview type={pattern.type} />
                 <div className="p-4">
@@ -405,7 +417,7 @@ export default function PatternsPage() {
                     )}
                   </div>
                 </div>
-              </div>
+              </Link>
             ))}
 
             {/* Add Pattern Card */}
